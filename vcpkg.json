@@ -1,0 +1,9 @@
+{
+  "name": "l4d2-mod-manager",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "sqlite3",
+    "spdlog",
+    "nlohmann-json"
+  ]
+}
