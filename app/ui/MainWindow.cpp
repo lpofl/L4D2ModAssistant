@@ -11,6 +11,11 @@
 #include "core/db/Migrations.h"
 #include "core/log/Log.h"
 
+/**
+ * @file MainWindow.cpp
+ * @brief 主窗口实现：初始化数据库与 UI，展示可见 Mod。
+ */
+
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setupUi();
 

@@ -2,6 +2,15 @@
 #pragma once
 #include "core/db/Db.h"
 
+/**
+ * @file Migrations.h
+ * @brief 应用层数据库结构迁移（幂等）。
+ */
+
+/**
+ * @brief 运行内置迁移脚本，创建表/索引/视图等。
+ * @param db 已打开的数据库实例。
+ */
 inline void runMigrations(Db& db) {
   db.exec(R"SQL(
     CREATE TABLE IF NOT EXISTS app_meta (
