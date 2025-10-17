@@ -1,6 +1,6 @@
 
 cmake_minimum_required(VERSION 3.24)
-project(L4D2ModManager LANGUAGES CXX)
+project(L4D2ModAssistant LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -9,8 +9,8 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 # If building with vcpkg
-if (EXISTS "${CMAKE_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake")
-  set(CMAKE_TOOLCHAIN_FILE "${CMAKE_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+if(NOT DEFINED CMAKE_PREFIX_PATH)
+  set(CMAKE_PREFIX_PATH "C:/Qt/6.9.3/msvc2022_64")
 endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
@@ -18,7 +18,7 @@ find_package(SQLite3 REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(nlohmann_json REQUIRED)
 
-add_executable(L4D2ModManager
+add_executable(L4D2ModAssistant
   app/main.cpp
   app/ui/MainWindow.cpp
   app/ui/MainWindow.h
@@ -37,9 +37,9 @@ add_executable(L4D2ModManager
   core/log/Log.h
 )
 
-target_include_directories(L4D2ModManager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(L4D2ModAssistant PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_link_libraries(L4D2ModManager
+target_link_libraries(L4D2ModAssistant
   PRIVATE
     Qt6::Widgets
     SQLite::SQLite3

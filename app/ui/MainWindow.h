@@ -2,6 +2,7 @@
 #pragma once
 #include <QMainWindow>
 #include <memory>
+#include "core/repo/RepositoryService.h"
 
 /**
  * @file MainWindow.h
@@ -10,8 +11,6 @@
 
 class QTableWidget;
 class QPushButton;
-
-class RepositoryService;
 
 /**
  * @brief 主窗口类，包含基础的表格展示与刷新逻辑。

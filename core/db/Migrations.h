@@ -1,24 +1,72 @@
-
 #pragma once
 #include "core/db/Db.h"
+#include "core/db/Stmt.h"
+#include <string>
+#include <stdexcept>
 
 /**
  * @file Migrations.h
- * @brief 应用层数据库结构迁移（幂等）。
+ * @brief Database schema migrations and seed-data initialization (idempotent).
  */
 
-/**
- * @brief 运行内置迁移脚本，创建表/索引/视图等。
- * @param db 已打开的数据库实例。
- */
-inline void runMigrations(Db& db) {
+namespace migrations {
+
+inline void ensureMetaTable(Db& db) {
   db.exec(R"SQL(
     CREATE TABLE IF NOT EXISTS app_meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
-    INSERT OR IGNORE INTO app_meta(key, value) VALUES ('schema_version','1');
+    INSERT OR IGNORE INTO app_meta(key, value) VALUES ('schema_version', '0');
+  )SQL");
+}
 
+inline int currentSchemaVersion(Db& db) {
+  Stmt stmt(db, "SELECT value FROM app_meta WHERE key = 'schema_version';");
+  if (stmt.step()) {
+    const auto val = stmt.getText(0);
+    try {
+      return std::stoi(val);
+    } catch (...) {
+      throw DbError("invalid schema_version value: " + val);
+    }
+  }
+  return 0;
+}
+
+inline void updateSchemaVersion(Db& db, int version) {
+  Stmt stmt(db, "UPDATE app_meta SET value = ? WHERE key = 'schema_version';");
+  stmt.bind(1, std::to_string(version));
+  stmt.step();
+}
+
+inline void seedVersion1(Db& db) {
+  db.exec(R"SQL(
+    INSERT OR IGNORE INTO categories(parent_id, name) VALUES
+      (NULL, 'General'),
+      (NULL, 'Characters'),
+      (NULL, 'Weapons'),
+      (NULL, 'Survivors'),
+      (NULL, 'Audio');
+
+    INSERT OR IGNORE INTO tags(name) VALUES
+      ('HD'),
+      ('Fun'),
+      ('Competitive'),
+      ('Coop'),
+      ('Soundtrack');
+
+    INSERT OR IGNORE INTO selections(id, name, budget_mb) VALUES
+      (1, 'Default Selection', 2048.0);
+
+    INSERT OR IGNORE INTO strategies(name, json) VALUES
+      ('Default', '{"name":"Default","rules":[]}');
+  )SQL");
+}
+
+inline void applyMigration1(Db& db) {
+  Db::Tx tx(db);
+  db.exec(R"SQL(
     CREATE TABLE IF NOT EXISTS categories (
       id INTEGER PRIMARY KEY,
       parent_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
@@ -49,6 +97,7 @@ inline void runMigrations(Db& db) {
       id INTEGER PRIMARY KEY,
       name TEXT UNIQUE NOT NULL
     );
+
     CREATE TABLE IF NOT EXISTS mod_tags (
       mod_id INTEGER NOT NULL REFERENCES mods(id) ON DELETE CASCADE,
       tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
@@ -75,6 +124,7 @@ inline void runMigrations(Db& db) {
       budget_mb REAL NOT NULL DEFAULT 2048.0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
     CREATE TABLE IF NOT EXISTS selection_items (
       selection_id INTEGER NOT NULL REFERENCES selections(id) ON DELETE CASCADE,
       mod_id INTEGER NOT NULL REFERENCES mods(id) ON DELETE CASCADE,
@@ -92,4 +142,22 @@ inline void runMigrations(Db& db) {
     CREATE VIEW IF NOT EXISTS v_mods_visible AS
     SELECT * FROM mods WHERE is_deleted = 0;
   )SQL");
+  seedVersion1(db);
+  updateSchemaVersion(db, 1);
+  tx.commit();
 }
+
+} // namespace migrations
+
+/**
+ * @brief Run built-in migrations to create or upgrade schema objects.
+ * @param db Open database connection.
+ */
+inline void runMigrations(Db& db) {
+  migrations::ensureMetaTable(db);
+  auto current = migrations::currentSchemaVersion(db);
+  if (current < 1) {
+    migrations::applyMigration1(db);
+  }
+}
+

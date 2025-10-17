@@ -1,6 +1,6 @@
 🧩 一、目标定义（极速 MVP）
 目标：
-在 3–5 天内实现一个可运行的 Left 4 Dead 2 MOD 管理器最小可用版本，能导入 MOD、展示列表、编辑评分备注、同步到游戏目录。
+在 3–5 天内实现一个可运行的 Left 4 Dead 2 MOD 助手（L4D2 Mod Assistant）最小可用版本，能导入 MOD、展示列表、编辑评分备注、同步到游戏目录。
 
 MVP 不包含：
 
@@ -31,7 +31,7 @@ UI 层	Qt 主窗口、表格展示	app/ui/MainWindow.ui/.h/.cpp	1 天
 📁 三、目录结构（初始版）
 bash
 复制代码
-L4D2ModManager/
+L4D2ModAssistant/
 │
 ├─ app/
 │  ├─ main.cpp

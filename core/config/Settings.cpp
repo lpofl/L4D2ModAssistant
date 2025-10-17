@@ -1,4 +1,3 @@
-
 #include "core/config/Settings.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -6,52 +5,101 @@
 
 /**
  * @file Settings.cpp
- * @brief 设置的加载/创建实现，基于 JSON 文件存储。
+ * @brief Load/create application settings backed by a JSON file.
  */
 
 using json = nlohmann::json;
 
 std::filesystem::path Settings::defaultSettingsPath() {
-  //编译时判断系统类型，Windows 使用 APPDATA 目录，Linux 使用 HOME 目录
+  // Resolve default settings path; Windows uses APPDATA, Linux uses HOME.
 #ifdef _WIN32
-  const char* appdata = std::getenv("APPDATA");//获取环境变量APPDATA
+  const char* appdata = std::getenv("APPDATA");
   std::filesystem::path base = appdata ? appdata : std::filesystem::current_path();
-  return base / "L4D2ModManager" / "settings.json";
+  return base / "L4D2ModAssistant" / "settings.json";
 #else
-  const char* home = std::getenv("HOME");//获取环境变量HOME
+  const char* home = std::getenv("HOME");
   std::filesystem::path base = home ? (std::filesystem::path(home) / ".config") : std::filesystem::current_path();
-  return base / "L4D2ModManager" / "settings.json";
+  return base / "L4D2ModAssistant" / "settings.json";
 #endif
+}
+
+namespace {
+std::filesystem::path defaultRepoDirectory() {
+  return std::filesystem::path("database");
+}
 }
 
 Settings Settings::loadOrCreate() {
   Settings s;
-  auto path = defaultSettingsPath();//获取默认配置文件路径
+  auto path = defaultSettingsPath(); // Default config location
   std::filesystem::create_directories(path.parent_path());
 
-  if (std::filesystem::exists(path)) {//如果配置文件存在
-    std::ifstream in(path);//读取配置文件
-    json j; in >> j;//解析配置文件
-    s.repoDir = j.value("repo_dir", "repo");
-    s.repoDbPath = (std::filesystem::path(s.repoDir) / "repo.db").string();//获取仓库数据库路径
-    s.gameAddonsDir = j.value("game_addons_dir", "left4dead2/addons");//获取游戏addons目录
-    s.moveOnImport = j.value("move_on_import", false);//获取是否移动文件
-    s.showDeleted = j.value("show_deleted", true);//获取是否显示已删除项
-  } else {//如果配置文件不存在
-    s.repoDir = "repo";
-    std::filesystem::create_directories(s.repoDir);//创建仓库目录
-    s.repoDbPath = (std::filesystem::path(s.repoDir) / "repo.db").string();
+  const auto repoDirDefault = defaultRepoDirectory();
+  const std::string repoDbDefaultName = "l4d2mod.db";
+
+  if (std::filesystem::exists(path)) { // Config file exists
+    std::ifstream in(path);
+    json j;
+    in >> j;
+    in.close();
+
+    bool shouldRewrite = false;
+    s.repoDir = j.value("repo_dir", repoDirDefault.string());
+    if (s.repoDir == "repo") {
+      s.repoDir = repoDirDefault.string();
+      shouldRewrite = true;
+    }
+
+    auto repoDbFromConfig = j.value("repo_db_path", std::string{});
+    if (!repoDbFromConfig.empty()) {
+      if (repoDbFromConfig == "repo/repo.db") {
+        s.repoDbPath = (repoDirDefault / repoDbDefaultName).string();
+        shouldRewrite = true;
+      } else {
+        s.repoDbPath = repoDbFromConfig;
+      }
+    } else {
+      s.repoDbPath = (std::filesystem::path(s.repoDir) / repoDbDefaultName).string();
+      shouldRewrite = true;
+    }
+    s.gameAddonsDir = j.value("game_addons_dir", "left4dead2/addons");
+    s.moveOnImport = j.value("move_on_import", false);
+    s.showDeleted = j.value("show_deleted", true);
+
+    if (shouldRewrite) {
+      j["repo_dir"] = s.repoDir;
+      j["repo_db_path"] = s.repoDbPath;
+      std::ofstream out(path);
+      out << j.dump(2);
+    }
+  } else { // Config file missing; create defaults
+    s.repoDir = repoDirDefault.string();
+    std::filesystem::create_directories(s.repoDir);
+    s.repoDbPath = (repoDirDefault / repoDbDefaultName).string();
     s.gameAddonsDir = "left4dead2/addons";
     s.moveOnImport = false;
     s.showDeleted = true;
     json j = {
-      {"repo_dir", s.repoDir},
-      {"game_addons_dir", s.gameAddonsDir},
-      {"move_on_import", s.moveOnImport},
-      {"show_deleted", s.showDeleted},
-      {"ui", {{"columns", {"name","author","rating","category","tags","note"}}}}
-    };
-    std::ofstream out(path); out << j.dump(2);
+        {"repo_dir", s.repoDir},
+        {"repo_db_path", s.repoDbPath},
+        {"game_addons_dir", s.gameAddonsDir},
+        {"move_on_import", s.moveOnImport},
+        {"show_deleted", s.showDeleted},
+        {"ui", {{"columns", {"name", "author", "rating", "category", "tags", "note"}}}}};
+    std::ofstream out(path);
+    out << j.dump(2);
+  }
+
+  if (s.repoDir.empty()) {
+    s.repoDir = repoDirDefault.string();
+  }
+  auto repoDirPath = std::filesystem::path(s.repoDir);
+  if (!repoDirPath.empty()) {
+    std::filesystem::create_directories(repoDirPath);
+  }
+  auto dbPath = std::filesystem::path(s.repoDbPath);
+  if (!dbPath.parent_path().empty()) {
+    std::filesystem::create_directories(dbPath.parent_path());
   }
   return s;
 }

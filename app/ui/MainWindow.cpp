@@ -20,11 +20,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setupUi();
 
     // Initialize DB
+    initLogging();
     Settings settings = Settings::loadOrCreate();
     spdlog::info("Repo DB: {}", settings.repoDbPath);
 
     auto db = std::make_shared<Db>(settings.repoDbPath);
     runMigrations(*db);
+    spdlog::info("Schema ready, version {}", migrations::currentSchemaVersion(*db));
     repo_ = std::make_unique<RepositoryService>(db);
 
     loadData();
