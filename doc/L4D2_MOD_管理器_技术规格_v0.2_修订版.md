@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS mods (
 );
 ```
 
-### categories / tags / mod_tags
+### categories / tag_groups / tags / mod_tags
 ```sql
 CREATE TABLE IF NOT EXISTS categories (
   id INTEGER PRIMARY KEY,
@@ -68,9 +68,17 @@ CREATE TABLE IF NOT EXISTS categories (
   UNIQUE(parent_id, name)
 );
 
+CREATE TABLE IF NOT EXISTS tag_groups (
+  id INTEGER PRIMARY KEY,
+  name TEXT UNIQUE NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS tags (
   id INTEGER PRIMARY KEY,
-  name TEXT UNIQUE NOT NULL
+  group_id INTEGER NOT NULL REFERENCES tag_groups(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  UNIQUE(group_id, name)
 );
 CREATE TABLE IF NOT EXISTS mod_tags (
   mod_id INTEGER NOT NULL REFERENCES mods(id) ON DELETE CASCADE,
@@ -133,7 +141,9 @@ SELECT * FROM mods WHERE is_deleted = 0;
   "scope": {
     "include_categories": ["人物", "枪械", "特感"],
     "exclude_categories": ["环境", "地图"],
-    "include_tags": ["动漫风"],
+    "include_tags": [
+      { "group": "二次元", "tag": "明日方舟" }
+    ],
     "exclude_tags": []
   },
   "priorities": {
@@ -163,10 +173,15 @@ SELECT * FROM mods WHERE is_deleted = 0;
 
 接口：
 ```cpp
+struct TagSelection {
+  std::string group;
+  std::string tag;
+};
+
 struct ImportOptions {
   bool move_files;
   std::optional<int> category_id;
-  std::vector<std::string> tags;
+  std::vector<TagSelection> tags;
 };
 ModId importFile(const fs::path& file, const ImportOptions& opt);
 std::vector<ModId> importFolder(const fs::path& folder, const ImportOptions& opt);
@@ -219,7 +234,12 @@ int getMasterOf(int slave_id);
       "人物": ["Nick", "Rochelle", "Coach", "Ellis"],
       "枪械": ["M16", "AK47", "M60"]
     },
-    "tags": ["动漫风", "写实", "二代生还者"]
+    "tag_groups": {
+      "二次元": ["VRC", "明日方舟", "崩坏", "BA", "碧蓝航线", "虚拟主播"],
+      "三次元": ["军事风"],
+      "健全度": ["健全", "非健全"],
+      "获取方式": ["免费", "付费", "定制"]
+    }
   }
   ```
   首次启动可读取 `init_categories.json` 与 `init_tags.json` 自动填充数据库。

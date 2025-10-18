@@ -27,6 +27,14 @@ add_executable(L4D2ModAssistant
   core/db/Db.h
   core/db/Stmt.h
   core/db/Migrations.h
+  core/repo/CategoryDao.cpp
+  core/repo/CategoryDao.h
+  core/repo/TagDao.cpp
+  core/repo/TagDao.h
+  core/repo/ModRelationDao.cpp
+  core/repo/ModRelationDao.h
+  core/repo/SelectionDao.cpp
+  core/repo/SelectionDao.h
   core/repo/RepositoryDao.cpp
   core/repo/RepositoryDao.h
   core/repo/RepositoryService.cpp

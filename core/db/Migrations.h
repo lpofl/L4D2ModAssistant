@@ -40,30 +40,6 @@ inline void updateSchemaVersion(Db& db, int version) {
   stmt.step();
 }
 
-inline void seedVersion1(Db& db) {
-  db.exec(R"SQL(
-    INSERT OR IGNORE INTO categories(parent_id, name) VALUES
-      (NULL, 'General'),
-      (NULL, 'Characters'),
-      (NULL, 'Weapons'),
-      (NULL, 'Survivors'),
-      (NULL, 'Audio');
-
-    INSERT OR IGNORE INTO tags(name) VALUES
-      ('HD'),
-      ('Fun'),
-      ('Competitive'),
-      ('Coop'),
-      ('Soundtrack');
-
-    INSERT OR IGNORE INTO selections(id, name, budget_mb) VALUES
-      (1, 'Default Selection', 2048.0);
-
-    INSERT OR IGNORE INTO strategies(name, json) VALUES
-      ('Default', '{"name":"Default","rules":[]}');
-  )SQL");
-}
-
 inline void applyMigration1(Db& db) {
   Db::Tx tx(db);
   db.exec(R"SQL(
@@ -93,10 +69,19 @@ inline void applyMigration1(Db& db) {
       UNIQUE(file_hash)
     );
 
+    CREATE TABLE IF NOT EXISTS tag_groups (
+      id INTEGER PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+
     CREATE TABLE IF NOT EXISTS tags (
       id INTEGER PRIMARY KEY,
-      name TEXT UNIQUE NOT NULL
+      group_id INTEGER NOT NULL REFERENCES tag_groups(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      UNIQUE(group_id, name)
     );
+    CREATE INDEX IF NOT EXISTS idx_tags_group ON tags(group_id);
 
     CREATE TABLE IF NOT EXISTS mod_tags (
       mod_id INTEGER NOT NULL REFERENCES mods(id) ON DELETE CASCADE,
@@ -142,7 +127,54 @@ inline void applyMigration1(Db& db) {
     CREATE VIEW IF NOT EXISTS v_mods_visible AS
     SELECT * FROM mods WHERE is_deleted = 0;
   )SQL");
-  seedVersion1(db);
+  db.exec(R"SQL(
+    INSERT OR IGNORE INTO categories(parent_id, name) VALUES
+      (NULL, 'General'),
+      (NULL, 'Characters'),
+      (NULL, 'Weapons'),
+      (NULL, 'Survivors'),
+      (NULL, 'Audio');
+
+    INSERT OR IGNORE INTO tag_groups(name, sort_order) VALUES
+      ('二次元', 10),
+      ('三次元', 20),
+      ('健全度', 30),
+      ('获取方式', 40);
+
+    INSERT OR IGNORE INTO tags(group_id, name)
+      SELECT id, 'VRC' FROM tag_groups WHERE name = '二次元';
+    INSERT OR IGNORE INTO tags(group_id, name)
+      SELECT id, '明日方舟' FROM tag_groups WHERE name = '二次元';
+    INSERT OR IGNORE INTO tags(group_id, name)
+      SELECT id, '崩坏' FROM tag_groups WHERE name = '二次元';
+    INSERT OR IGNORE INTO tags(group_id, name)
+      SELECT id, 'BA' FROM tag_groups WHERE name = '二次元';
+    INSERT OR IGNORE INTO tags(group_id, name)
+      SELECT id, '碧蓝航线' FROM tag_groups WHERE name = '二次元';
+    INSERT OR IGNORE INTO tags(group_id, name)
+      SELECT id, '虚拟主播' FROM tag_groups WHERE name = '二次元';
+
+    INSERT OR IGNORE INTO tags(group_id, name)
+      SELECT id, '军事风' FROM tag_groups WHERE name = '三次元';
+
+    INSERT OR IGNORE INTO tags(group_id, name)
+      SELECT id, '健全' FROM tag_groups WHERE name = '健全度';
+    INSERT OR IGNORE INTO tags(group_id, name)
+      SELECT id, '非健全' FROM tag_groups WHERE name = '健全度';
+
+    INSERT OR IGNORE INTO tags(group_id, name)
+      SELECT id, '免费' FROM tag_groups WHERE name = '获取方式';
+    INSERT OR IGNORE INTO tags(group_id, name)
+      SELECT id, '付费' FROM tag_groups WHERE name = '获取方式';
+    INSERT OR IGNORE INTO tags(group_id, name)
+      SELECT id, '定制' FROM tag_groups WHERE name = '获取方式';
+
+    INSERT OR IGNORE INTO selections(id, name, budget_mb) VALUES
+      (1, 'Default Selection', 2048.0);
+
+    INSERT OR IGNORE INTO strategies(name, json) VALUES
+      ('Default', '{"name":"Default","rules":[]}');
+  )SQL");
   updateSchemaVersion(db, 1);
   tx.commit();
 }
