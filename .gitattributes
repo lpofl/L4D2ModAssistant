@@ -1,0 +1,18 @@
+# 默认归一化
+* text=auto
+
+# 代码文件统一使用 LF
+*.c      text eol=lf
+*.cc     text eol=lf
+*.cpp    text eol=lf
+*.cxx    text eol=lf
+*.h      text eol=lf
+*.hpp    text eol=lf
+*.hxx    text eol=lf
+*.inl    text eol=lf
+*.cmake  text eol=lf
+CMakeLists.txt text eol=lf
+
+# 文档使用 CRLF
+*.md     text eol=crlf
+
