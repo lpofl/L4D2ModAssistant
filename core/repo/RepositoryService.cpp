@@ -1,41 +1,55 @@
 #include "core/repo/RepositoryService.h"
 #include <algorithm>
 #include <cctype>
-#include <utility>
+#include <string_view>
 #include <unordered_set>
 
 namespace {
 
-// 归一化 TAG 名称：去空白、去重复
-std::vector<std::string> normalizeTagNames(const std::vector<std::string>& tagNames) {
-  std::vector<std::string> filtered;
-  filtered.reserve(tagNames.size());
-  std::unordered_set<std::string> seen;
-  for (const auto& raw : tagNames) {
-    std::string trimmed = raw;
-    trimmed.erase(trimmed.begin(), std::find_if(trimmed.begin(), trimmed.end(), [](unsigned char c) { return !std::isspace(c); }));
-    trimmed.erase(std::find_if(trimmed.rbegin(), trimmed.rend(), [](unsigned char c) { return !std::isspace(c); }).base(), trimmed.end());
-    if (trimmed.empty()) continue;
-    if (seen.insert(trimmed).second) {
-      filtered.push_back(std::move(trimmed));
-    }
+// 去除首尾空白，返回新的 std::string
+std::string trimCopy(std::string_view text) {
+  auto begin = std::find_if_not(text.begin(), text.end(), [](unsigned char c) { return std::isspace(c); });
+  auto end = std::find_if_not(text.rbegin(), text.rend(), [](unsigned char c) { return std::isspace(c); }).base();
+  if (begin >= end) {
+    return {};
   }
-  return filtered;
+  return std::string(begin, end);
 }
 
-// 确保传入的 TAG 集合都有合法 ID
-std::vector<int> ensureTagIds(TagDao& tagDao, const std::vector<std::string>& tagNames) {
-  auto normalized = normalizeTagNames(tagNames);
+// 归一化 TAG 描述：去重、去空白
+std::vector<TagDescriptor> normalizeDescriptors(const std::vector<TagDescriptor>& tags) {
+  std::vector<TagDescriptor> normalized;
+  normalized.reserve(tags.size());
+  std::unordered_set<std::string> dedup;
+
+  for (const auto& tag : tags) {
+    std::string group = trimCopy(tag.group);
+    std::string value = trimCopy(tag.tag);
+    if (group.empty() || value.empty()) {
+      continue;
+    }
+    std::string key = group + '\0' + value;
+    if (dedup.insert(key).second) {
+      normalized.push_back({std::move(group), std::move(value)});
+    }
+  }
+  return normalized;
+}
+
+// 确保 TAG 组与条目存在，返回对应 ID 列表
+std::vector<int> ensureTagIds(TagDao& tagDao, const std::vector<TagDescriptor>& tags) {
+  auto normalized = normalizeDescriptors(tags);
   std::vector<int> ids;
   ids.reserve(normalized.size());
-  for (const auto& name : normalized) {
-    ids.push_back(tagDao.ensureTagId(name));
+  for (const auto& tag : normalized) {
+    int groupId = tagDao.ensureGroupId(tag.group);
+    ids.push_back(tagDao.ensureTagId(groupId, tag.tag));
   }
   return ids;
 }
 
-// 以替换方式重建 MOD 的 TAG 绑定
-void replaceTagsForMod(TagDao& tagDao, int modId, const std::vector<int>& tagIds) {
+// 使用新的 TAG 集合替换 MOD 的现有绑定关系
+void replaceModTags(TagDao& tagDao, int modId, const std::vector<int>& tagIds) {
   tagDao.clearTagsForMod(modId);
   for (int tagId : tagIds) {
     tagDao.addTagToMod(modId, tagId);
@@ -53,60 +67,54 @@ RepositoryService::RepositoryService(std::shared_ptr<Db> db)
     selectionDao_(std::make_unique<SelectionDao>(db_)) {}
 
 std::vector<ModRow> RepositoryService::listVisible() const {
-  // 直接透传 DAO 查询
   return repoDao_->listVisible();
 }
 
-int RepositoryService::createModWithTags(const ModRow& mod, const std::vector<std::string>& tagNames) {
-  // 新建 MOD 并绑定 TAG，全程事务保证一致性
+int RepositoryService::createModWithTags(const ModRow& mod, const std::vector<TagDescriptor>& tags) {
   Db::Tx tx(*db_);
   const int modId = repoDao_->insertMod(mod);
-  const auto tagIds = ensureTagIds(*tagDao_, tagNames);
-  replaceTagsForMod(*tagDao_, modId, tagIds);
+  const auto tagIds = ensureTagIds(*tagDao_, tags);
+  replaceModTags(*tagDao_, modId, tagIds);
   tx.commit();
   return modId;
 }
 
-void RepositoryService::updateModTags(int modId, const std::vector<std::string>& tagNames) {
-  // 重新绑定 MOD TAG，先清空再写入
+void RepositoryService::updateModTags(int modId, const std::vector<TagDescriptor>& tags) {
   Db::Tx tx(*db_);
-  const auto tagIds = ensureTagIds(*tagDao_, tagNames);
-  replaceTagsForMod(*tagDao_, modId, tagIds);
+  const auto tagIds = ensureTagIds(*tagDao_, tags);
+  replaceModTags(*tagDao_, modId, tagIds);
   tx.commit();
 }
 
 std::vector<CategoryRow> RepositoryService::listCategories() const {
-  // 分类通常直接展示树状结构
   return categoryDao_->listAll();
 }
 
 int RepositoryService::createCategory(const std::string& name, std::optional<int> parentId) {
-  // 创建分类时不含事务，交由调用方控制上下文
   return categoryDao_->insert(name, parentId);
 }
 
 void RepositoryService::updateCategory(int id, const std::string& name, std::optional<int> parentId) {
-  // 更新分类属性
   categoryDao_->update(id, name, parentId);
 }
 
-std::vector<TagRow> RepositoryService::listTags() const {
-  // 供 TAG 列表管理页面使用
-  return tagDao_->listAll();
+std::vector<TagGroupRow> RepositoryService::listTagGroups() const {
+  return tagDao_->listGroups();
 }
 
-std::vector<TagRow> RepositoryService::listTagsForMod(int modId) const {
-  // 查询 MOD 的 TAG 明细
+std::vector<TagWithGroupRow> RepositoryService::listTags() const {
+  return tagDao_->listAllWithGroup();
+}
+
+std::vector<TagWithGroupRow> RepositoryService::listTagsForMod(int modId) const {
   return tagDao_->listByMod(modId);
 }
 
 std::vector<ModRelationRow> RepositoryService::listRelationsForMod(int modId) const {
-  // 聚合关系表数据，便于 UI 呈现
   return relationDao_->listByMod(modId);
 }
 
 int RepositoryService::addRelation(const ModRelationRow& relation) {
-  // 写入关系前做简单自检，防止自环
   if (relation.a_mod_id == relation.b_mod_id) {
     throw DbError("relation endpoints cannot be the same mod");
   }
@@ -114,27 +122,22 @@ int RepositoryService::addRelation(const ModRelationRow& relation) {
 }
 
 void RepositoryService::removeRelation(int relationId) {
-  // 按主键删除关系
   relationDao_->removeById(relationId);
 }
 
 void RepositoryService::removeRelation(int aModId, int bModId, const std::string& type) {
-  // 删除指定关系对
   relationDao_->removeBetween(aModId, bModId, type);
 }
 
 std::vector<SelectionRow> RepositoryService::listSelections() const {
-  // 获取组合方案列表
   return selectionDao_->listAll();
 }
 
 std::vector<SelectionItemRow> RepositoryService::listSelectionItems(int selectionId) const {
-  // 查询组合条目，用于预览或编辑
   return selectionDao_->listItems(selectionId);
 }
 
 int RepositoryService::createSelection(const std::string& name, double budgetMb, const std::vector<SelectionItemRow>& items) {
-  // 创建组合和条目，事务保证组合和条目写入同步成功
   Db::Tx tx(*db_);
   const int selectionId = selectionDao_->insert(name, budgetMb);
   for (const auto& item : items) {
@@ -147,7 +150,6 @@ int RepositoryService::createSelection(const std::string& name, double budgetMb,
 }
 
 void RepositoryService::updateSelectionItems(int selectionId, const std::vector<SelectionItemRow>& items) {
-  // 通过清空再写入的方式覆盖组合条目
   Db::Tx tx(*db_);
   selectionDao_->clearItems(selectionId);
   for (const auto& item : items) {
@@ -159,6 +161,6 @@ void RepositoryService::updateSelectionItems(int selectionId, const std::vector<
 }
 
 void RepositoryService::deleteSelection(int selectionId) {
-  // 删除组合时，由数据库负责清理关联条目
   selectionDao_->deleteSelection(selectionId);
 }
+
