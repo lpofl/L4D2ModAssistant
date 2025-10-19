@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "core/db/Db.h"
 #include "core/db/Stmt.h"
 #include <string>
@@ -103,19 +103,14 @@ inline void applyMigration1(Db& db) {
     CREATE INDEX IF NOT EXISTS idx_mod_rel_b    ON mod_relations(b_mod_id);
     CREATE INDEX IF NOT EXISTS idx_mod_rel_type ON mod_relations(type);
 
-    CREATE TABLE IF NOT EXISTS selections (
+    CREATE TABLE IF NOT EXISTS saved_schemes (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
       budget_mb REAL NOT NULL DEFAULT 2048.0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
-    CREATE TABLE IF NOT EXISTS selection_items (
-      selection_id INTEGER NOT NULL REFERENCES selections(id) ON DELETE CASCADE,
-      mod_id INTEGER NOT NULL REFERENCES mods(id) ON DELETE CASCADE,
-      is_locked INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY(selection_id, mod_id)
-    );
+    CREATE TABLE IF NOT EXISTS saved_scheme_items (\n      scheme_id INTEGER NOT NULL REFERENCES saved_schemes(id) ON DELETE CASCADE,\n      mod_id INTEGER NOT NULL REFERENCES mods(id) ON DELETE CASCADE,\n      is_locked INTEGER NOT NULL DEFAULT 0,\n      PRIMARY KEY(scheme_id, mod_id)\n    );\n\n    CREATE TABLE IF NOT EXISTS fixed_bundles (\n      id INTEGER PRIMARY KEY,\n      name TEXT NOT NULL UNIQUE,\n      note TEXT\n    );\n\n    CREATE TABLE IF NOT EXISTS fixed_bundle_items (\n      bundle_id INTEGER NOT NULL REFERENCES fixed_bundles(id) ON DELETE CASCADE,\n      mod_id INTEGER NOT NULL REFERENCES mods(id) ON DELETE CASCADE,\n      PRIMARY KEY(bundle_id, mod_id)\n    );
 
     CREATE TABLE IF NOT EXISTS strategies (
       id INTEGER PRIMARY KEY,
@@ -136,41 +131,42 @@ inline void applyMigration1(Db& db) {
       (NULL, 'Audio');
 
     INSERT OR IGNORE INTO tag_groups(name, sort_order) VALUES
-      ('二次元', 10),
-      ('三次元', 20),
-      ('健全度', 30),
-      ('获取方式', 40);
+      ('Anime', 10),
+      ('Realistic', 20),
+      ('Maturity', 30),
+      ('Acquisition', 40);
 
     INSERT OR IGNORE INTO tags(group_id, name)
-      SELECT id, 'VRC' FROM tag_groups WHERE name = '二次元';
+      SELECT id, 'VRC' FROM tag_groups WHERE name = 'Anime';
     INSERT OR IGNORE INTO tags(group_id, name)
-      SELECT id, '明日方舟' FROM tag_groups WHERE name = '二次元';
+      SELECT id, 'Arknights' FROM tag_groups WHERE name = 'Anime';
     INSERT OR IGNORE INTO tags(group_id, name)
-      SELECT id, '崩坏' FROM tag_groups WHERE name = '二次元';
+      SELECT id, 'Honkai' FROM tag_groups WHERE name = 'Anime';
     INSERT OR IGNORE INTO tags(group_id, name)
-      SELECT id, 'BA' FROM tag_groups WHERE name = '二次元';
+      SELECT id, 'BA' FROM tag_groups WHERE name = 'Anime';
     INSERT OR IGNORE INTO tags(group_id, name)
-      SELECT id, '碧蓝航线' FROM tag_groups WHERE name = '二次元';
+      SELECT id, 'Azur Lane' FROM tag_groups WHERE name = 'Anime';
     INSERT OR IGNORE INTO tags(group_id, name)
-      SELECT id, '虚拟主播' FROM tag_groups WHERE name = '二次元';
+      SELECT id, 'VTuber' FROM tag_groups WHERE name = 'Anime';
 
     INSERT OR IGNORE INTO tags(group_id, name)
-      SELECT id, '军事风' FROM tag_groups WHERE name = '三次元';
+      SELECT id, 'Military' FROM tag_groups WHERE name = 'Realistic';
 
     INSERT OR IGNORE INTO tags(group_id, name)
-      SELECT id, '健全' FROM tag_groups WHERE name = '健全度';
+      SELECT id, 'Safe' FROM tag_groups WHERE name = 'Maturity';
     INSERT OR IGNORE INTO tags(group_id, name)
-      SELECT id, '非健全' FROM tag_groups WHERE name = '健全度';
+      SELECT id, 'NSFW' FROM tag_groups WHERE name = 'Maturity';
 
     INSERT OR IGNORE INTO tags(group_id, name)
-      SELECT id, '免费' FROM tag_groups WHERE name = '获取方式';
+      SELECT id, 'Free' FROM tag_groups WHERE name = 'Acquisition';
     INSERT OR IGNORE INTO tags(group_id, name)
-      SELECT id, '付费' FROM tag_groups WHERE name = '获取方式';
+      SELECT id, 'Paid' FROM tag_groups WHERE name = 'Acquisition';
     INSERT OR IGNORE INTO tags(group_id, name)
-      SELECT id, '定制' FROM tag_groups WHERE name = '获取方式';
+      SELECT id, 'Commissioned' FROM tag_groups WHERE name = 'Acquisition';
 
-    INSERT OR IGNORE INTO selections(id, name, budget_mb) VALUES
-      (1, 'Default Selection', 2048.0);
+    INSERT OR IGNORE INTO saved_schemes(id, name, budget_mb) VALUES
+      (1, 'Default Scheme', 2048.0);
+
 
     INSERT OR IGNORE INTO strategies(name, json) VALUES
       ('Default', '{"name":"Default","rules":[]}');
@@ -192,4 +188,5 @@ inline void runMigrations(Db& db) {
     migrations::applyMigration1(db);
   }
 }
+
 

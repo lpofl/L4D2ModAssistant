@@ -2,21 +2,18 @@
 #include <algorithm>
 #include <cctype>
 #include <string_view>
+#include <utility>
 #include <unordered_set>
 
 namespace {
 
-// 去除首尾空白，返回新的 std::string
 std::string trimCopy(std::string_view text) {
   auto begin = std::find_if_not(text.begin(), text.end(), [](unsigned char c) { return std::isspace(c); });
   auto end = std::find_if_not(text.rbegin(), text.rend(), [](unsigned char c) { return std::isspace(c); }).base();
-  if (begin >= end) {
-    return {};
-  }
+  if (begin >= end) return {};
   return std::string(begin, end);
 }
 
-// 归一化 TAG 描述：去重、去空白
 std::vector<TagDescriptor> normalizeDescriptors(const std::vector<TagDescriptor>& tags) {
   std::vector<TagDescriptor> normalized;
   normalized.reserve(tags.size());
@@ -25,9 +22,7 @@ std::vector<TagDescriptor> normalizeDescriptors(const std::vector<TagDescriptor>
   for (const auto& tag : tags) {
     std::string group = trimCopy(tag.group);
     std::string value = trimCopy(tag.tag);
-    if (group.empty() || value.empty()) {
-      continue;
-    }
+    if (group.empty() || value.empty()) continue;
     std::string key = group + '\0' + value;
     if (dedup.insert(key).second) {
       normalized.push_back({std::move(group), std::move(value)});
@@ -36,7 +31,6 @@ std::vector<TagDescriptor> normalizeDescriptors(const std::vector<TagDescriptor>
   return normalized;
 }
 
-// 确保 TAG 组与条目存在，返回对应 ID 列表
 std::vector<int> ensureTagIds(TagDao& tagDao, const std::vector<TagDescriptor>& tags) {
   auto normalized = normalizeDescriptors(tags);
   std::vector<int> ids;
@@ -48,7 +42,6 @@ std::vector<int> ensureTagIds(TagDao& tagDao, const std::vector<TagDescriptor>& 
   return ids;
 }
 
-// 使用新的 TAG 集合替换 MOD 的现有绑定关系
 void replaceModTags(TagDao& tagDao, int modId, const std::vector<int>& tagIds) {
   tagDao.clearTagsForMod(modId);
   for (int tagId : tagIds) {
@@ -64,7 +57,8 @@ RepositoryService::RepositoryService(std::shared_ptr<Db> db)
     categoryDao_(std::make_unique<CategoryDao>(db_)),
     tagDao_(std::make_unique<TagDao>(db_)),
     relationDao_(std::make_unique<ModRelationDao>(db_)),
-    selectionDao_(std::make_unique<SelectionDao>(db_)) {}
+    savedSchemeDao_(std::make_unique<SavedSchemeDao>(db_)),
+    fixedBundleDao_(std::make_unique<FixedBundleDao>(db_)) {}
 
 std::vector<ModRow> RepositoryService::listVisible() const {
   return repoDao_->listVisible();
@@ -129,38 +123,70 @@ void RepositoryService::removeRelation(int aModId, int bModId, const std::string
   relationDao_->removeBetween(aModId, bModId, type);
 }
 
-std::vector<SelectionRow> RepositoryService::listSelections() const {
-  return selectionDao_->listAll();
+std::vector<FixedBundleRow> RepositoryService::listFixedBundles() const {
+  return fixedBundleDao_->listBundles();
 }
 
-std::vector<SelectionItemRow> RepositoryService::listSelectionItems(int selectionId) const {
-  return selectionDao_->listItems(selectionId);
+std::vector<FixedBundleItemRow> RepositoryService::listFixedBundleItems(int bundleId) const {
+  return fixedBundleDao_->listItems(bundleId);
 }
 
-int RepositoryService::createSelection(const std::string& name, double budgetMb, const std::vector<SelectionItemRow>& items) {
+int RepositoryService::createFixedBundle(const std::string& name, const std::vector<int>& modIds, const std::optional<std::string>& note) {
   Db::Tx tx(*db_);
-  const int selectionId = selectionDao_->insert(name, budgetMb);
-  for (const auto& item : items) {
-    SelectionItemRow row = item;
-    row.selection_id = selectionId;
-    selectionDao_->addItem(row);
+  const int bundleId = fixedBundleDao_->insertBundle(name, note);
+  fixedBundleDao_->clearItems(bundleId);
+  for (int modId : modIds) {
+    fixedBundleDao_->addItem(bundleId, modId);
   }
   tx.commit();
-  return selectionId;
+  return bundleId;
 }
 
-void RepositoryService::updateSelectionItems(int selectionId, const std::vector<SelectionItemRow>& items) {
+void RepositoryService::updateFixedBundle(int bundleId, const std::string& name, const std::vector<int>& modIds, const std::optional<std::string>& note) {
   Db::Tx tx(*db_);
-  selectionDao_->clearItems(selectionId);
-  for (const auto& item : items) {
-    SelectionItemRow row = item;
-    row.selection_id = selectionId;
-    selectionDao_->addItem(row);
+  fixedBundleDao_->updateBundle(bundleId, name, note);
+  fixedBundleDao_->clearItems(bundleId);
+  for (int modId : modIds) {
+    fixedBundleDao_->addItem(bundleId, modId);
   }
   tx.commit();
 }
 
-void RepositoryService::deleteSelection(int selectionId) {
-  selectionDao_->deleteSelection(selectionId);
+void RepositoryService::deleteFixedBundle(int bundleId) {
+  fixedBundleDao_->deleteBundle(bundleId);
 }
 
+std::vector<SavedSchemeRow> RepositoryService::listSavedSchemes() const {
+  return savedSchemeDao_->listAll();
+}
+
+std::vector<SavedSchemeItemRow> RepositoryService::listSavedSchemeItems(int schemeId) const {
+  return savedSchemeDao_->listItems(schemeId);
+}
+
+int RepositoryService::createSavedScheme(const std::string& name, double budgetMb, const std::vector<SavedSchemeItemRow>& items) {
+  Db::Tx tx(*db_);
+  const int schemeId = savedSchemeDao_->insert(name, budgetMb);
+  for (const auto& item : items) {
+    SavedSchemeItemRow row = item;
+    row.scheme_id = schemeId;
+    savedSchemeDao_->addItem(row);
+  }
+  tx.commit();
+  return schemeId;
+}
+
+void RepositoryService::updateSavedSchemeItems(int schemeId, const std::vector<SavedSchemeItemRow>& items) {
+  Db::Tx tx(*db_);
+  savedSchemeDao_->clearItems(schemeId);
+  for (const auto& item : items) {
+    SavedSchemeItemRow row = item;
+    row.scheme_id = schemeId;
+    savedSchemeDao_->addItem(row);
+  }
+  tx.commit();
+}
+
+void RepositoryService::deleteSavedScheme(int schemeId) {
+  savedSchemeDao_->deleteScheme(schemeId);
+}

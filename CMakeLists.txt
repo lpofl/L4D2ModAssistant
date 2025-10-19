@@ -33,8 +33,10 @@ add_executable(L4D2ModAssistant
   core/repo/TagDao.h
   core/repo/ModRelationDao.cpp
   core/repo/ModRelationDao.h
-  core/repo/SelectionDao.cpp
-  core/repo/SelectionDao.h
+  core/repo/SavedSchemeDao.cpp
+  core/repo/SavedSchemeDao.h
+  core/repo/FixedBundleDao.cpp
+  core/repo/FixedBundleDao.h
   core/repo/RepositoryDao.cpp
   core/repo/RepositoryDao.h
   core/repo/RepositoryService.cpp
