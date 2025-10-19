@@ -124,14 +124,17 @@ void RepositoryService::removeRelation(int aModId, int bModId, const std::string
 }
 
 std::vector<FixedBundleRow> RepositoryService::listFixedBundles() const {
+  // 固定搭配列表供导入器/策略使用
   return fixedBundleDao_->listBundles();
 }
 
 std::vector<FixedBundleItemRow> RepositoryService::listFixedBundleItems(int bundleId) const {
+  // 查询固定搭配包含的 MOD
   return fixedBundleDao_->listItems(bundleId);
 }
 
 int RepositoryService::createFixedBundle(const std::string& name, const std::vector<int>& modIds, const std::optional<std::string>& note) {
+  // 新建固定搭配并写入 MOD 列表
   Db::Tx tx(*db_);
   const int bundleId = fixedBundleDao_->insertBundle(name, note);
   fixedBundleDao_->clearItems(bundleId);
@@ -143,6 +146,7 @@ int RepositoryService::createFixedBundle(const std::string& name, const std::vec
 }
 
 void RepositoryService::updateFixedBundle(int bundleId, const std::string& name, const std::vector<int>& modIds, const std::optional<std::string>& note) {
+  // 修改固定搭配信息，同步其 MOD 列表
   Db::Tx tx(*db_);
   fixedBundleDao_->updateBundle(bundleId, name, note);
   fixedBundleDao_->clearItems(bundleId);
@@ -153,18 +157,22 @@ void RepositoryService::updateFixedBundle(int bundleId, const std::string& name,
 }
 
 void RepositoryService::deleteFixedBundle(int bundleId) {
+  // 删除固定搭配
   fixedBundleDao_->deleteBundle(bundleId);
 }
 
 std::vector<SavedSchemeRow> RepositoryService::listSavedSchemes() const {
+  // 获取所有已保存的组合方案
   return savedSchemeDao_->listAll();
 }
 
 std::vector<SavedSchemeItemRow> RepositoryService::listSavedSchemeItems(int schemeId) const {
+  // 查询组合方案内包含的 MOD
   return savedSchemeDao_->listItems(schemeId);
 }
 
 int RepositoryService::createSavedScheme(const std::string& name, double budgetMb, const std::vector<SavedSchemeItemRow>& items) {
+  // 保存组合方案（含锁定状态）
   Db::Tx tx(*db_);
   const int schemeId = savedSchemeDao_->insert(name, budgetMb);
   for (const auto& item : items) {
@@ -177,6 +185,7 @@ int RepositoryService::createSavedScheme(const std::string& name, double budgetM
 }
 
 void RepositoryService::updateSavedSchemeItems(int schemeId, const std::vector<SavedSchemeItemRow>& items) {
+  // 用新的条目集合覆盖旧方案内容
   Db::Tx tx(*db_);
   savedSchemeDao_->clearItems(schemeId);
   for (const auto& item : items) {
@@ -188,5 +197,6 @@ void RepositoryService::updateSavedSchemeItems(int schemeId, const std::vector<S
 }
 
 void RepositoryService::deleteSavedScheme(int schemeId) {
+  // 删除组合方案
   savedSchemeDao_->deleteScheme(schemeId);
 }

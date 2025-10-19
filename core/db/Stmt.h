@@ -39,7 +39,7 @@ public:
     auto* p = reinterpret_cast<const char*>(sqlite3_column_text(stmt_, col));
     return p ? std::string(p) : std::string();
   }
-  /// 判断指定列是否为空值（NULL）
+  /// 判断指定列是否为 NULL
   bool isNull(int col) const { return sqlite3_column_type(stmt_, col) == SQLITE_NULL; }
 
   void reset() {

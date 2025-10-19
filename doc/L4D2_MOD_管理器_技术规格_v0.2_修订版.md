@@ -105,19 +105,30 @@ CREATE INDEX IF NOT EXISTS idx_mod_rel_b    ON mod_relations(b_mod_id);
 CREATE INDEX IF NOT EXISTS idx_mod_rel_type ON mod_relations(type);
 ```
 
-### selections / strategies
+### saved_schemes / strategies
 ```sql
-CREATE TABLE IF NOT EXISTS selections (
+CREATE TABLE IF NOT EXISTS saved_schemes (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
   budget_mb REAL NOT NULL DEFAULT 2048.0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE TABLE IF NOT EXISTS selection_items (
-  selection_id INTEGER NOT NULL REFERENCES selections(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS saved_scheme_items (
+  scheme_id INTEGER NOT NULL REFERENCES saved_schemes(id) ON DELETE CASCADE,
   mod_id INTEGER NOT NULL REFERENCES mods(id) ON DELETE CASCADE,
   is_locked INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY(selection_id, mod_id)
+  PRIMARY KEY(scheme_id, mod_id)
+);
+
+CREATE TABLE IF NOT EXISTS fixed_bundles (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  note TEXT
+);
+CREATE TABLE IF NOT EXISTS fixed_bundle_items (
+  bundle_id INTEGER NOT NULL REFERENCES fixed_bundles(id) ON DELETE CASCADE,
+  mod_id INTEGER NOT NULL REFERENCES mods(id) ON DELETE CASCADE,
+  PRIMARY KEY(bundle_id, mod_id)
 );
 
 CREATE TABLE IF NOT EXISTS strategies (
@@ -127,6 +138,10 @@ CREATE TABLE IF NOT EXISTS strategies (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 ```
+
+- `fixed_bundles`：固定搭配。导入器载入后会自动选中并锁定其中的 MOD。
+- `saved_schemes`：组合方案。导入器载入后仅选中 MOD，是否锁定由 `saved_scheme_items.is_locked` 决定。
+- 随机组合器生成的临时结果不会立即写入以上表，需要玩家确认后才执行保存。
 
 ### 视图
 ```sql
