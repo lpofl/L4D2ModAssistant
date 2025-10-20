@@ -110,7 +110,25 @@ inline void applyMigration1(Db& db) {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
-    CREATE TABLE IF NOT EXISTS saved_scheme_items (\n      scheme_id INTEGER NOT NULL REFERENCES saved_schemes(id) ON DELETE CASCADE,\n      mod_id INTEGER NOT NULL REFERENCES mods(id) ON DELETE CASCADE,\n      is_locked INTEGER NOT NULL DEFAULT 0,\n      PRIMARY KEY(scheme_id, mod_id)\n    );\n\n    CREATE TABLE IF NOT EXISTS fixed_bundles (\n      id INTEGER PRIMARY KEY,\n      name TEXT NOT NULL UNIQUE,\n      note TEXT\n    );\n\n    CREATE TABLE IF NOT EXISTS fixed_bundle_items (\n      bundle_id INTEGER NOT NULL REFERENCES fixed_bundles(id) ON DELETE CASCADE,\n      mod_id INTEGER NOT NULL REFERENCES mods(id) ON DELETE CASCADE,\n      PRIMARY KEY(bundle_id, mod_id)\n    );
+    CREATE TABLE IF NOT EXISTS saved_scheme_items (
+      scheme_id INTEGER NOT NULL REFERENCES saved_schemes(id) ON DELETE CASCADE,
+      mod_id INTEGER NOT NULL REFERENCES mods(id) ON DELETE CASCADE,
+      is_locked INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY(scheme_id, mod_id)
+    );
+    
+    CREATE TABLE IF NOT EXISTS fixed_bundles (
+    
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    note TEXT
+    );
+    
+    CREATE TABLE IF NOT EXISTS fixed_bundle_items (
+    bundle_id INTEGER NOT NULL REFERENCES fixed_bundles(id) ON DELETE CASCADE,
+    mod_id INTEGER NOT NULL REFERENCES mods(id) ON DELETE CASCADE,
+    PRIMARY KEY(bundle_id, mod_id)
+    );
 
     CREATE TABLE IF NOT EXISTS strategies (
       id INTEGER PRIMARY KEY,

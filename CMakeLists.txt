@@ -17,6 +17,7 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets)
 find_package(SQLite3 REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(nlohmann_json REQUIRED)
+find_package(GTest CONFIG REQUIRED)
 
 add_executable(L4D2ModAssistant
   app/main.cpp
@@ -56,5 +57,41 @@ target_link_libraries(L4D2ModAssistant
     spdlog::spdlog
     nlohmann_json::nlohmann_json
 )
+
+enable_testing()
+
+add_executable(L4D2ModAssistantTests
+  tests/SavedSchemeTests.cpp
+  core/db/Db.cpp
+  core/db/Db.h
+  core/db/Stmt.h
+  core/db/Migrations.h
+  core/repo/CategoryDao.cpp
+  core/repo/CategoryDao.h
+  core/repo/RepositoryDao.cpp
+  core/repo/RepositoryDao.h
+  core/repo/TagDao.cpp
+  core/repo/TagDao.h
+  core/repo/ModRelationDao.cpp
+  core/repo/ModRelationDao.h
+  core/repo/SavedSchemeDao.cpp
+  core/repo/SavedSchemeDao.h
+  core/repo/FixedBundleDao.cpp
+  core/repo/FixedBundleDao.h
+  core/repo/RepositoryService.cpp
+  core/repo/RepositoryService.h
+)
+
+target_include_directories(L4D2ModAssistantTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_link_libraries(L4D2ModAssistantTests
+  PRIVATE
+    SQLite::SQLite3
+    spdlog::spdlog
+    nlohmann_json::nlohmann_json
+    GTest::gtest_main
+)
+
+add_test(NAME L4D2RepoTests COMMAND L4D2ModAssistantTests)
 
 # On Windows, deploy Qt plugins may be necessary (skipped here)
