@@ -1,0 +1,106 @@
+{
+  "_comment": "此配置文件仅用于提供数据库默认初始数据，若已经完成初始化，后续数据增改请通过应用内设置功能修改。",
+  "categories": {
+    "人物": [
+      "Bill(一代)",
+      "Zoey(一代)",
+      "Louis(一代)",
+      "Francis(一代)",
+      "Nick(二代)",
+      "Rochelle(二代)",
+      "Coach(二代)",
+      "Ellis(二代)"
+    ],
+    "特感": [
+      "Smoker",
+      "Boomer",
+      "Hunter",
+      "Spitter",
+      "Charger",
+      "Jockey",
+      "Tank",
+      "Witch"
+    ],
+    "枪械": [
+      "Uzi/SMG 无消音",
+      "MAC-10 消音冲",
+      "MP5",
+      "一代木喷 Pump Shotgun",
+      "二代铁喷 Chrome Shotgun",
+      "一代连喷 Auto Shotgun",
+      "二代连喷 Combat Shotgun",
+      "M16",
+      "AK47",
+      "SCAR-L",
+      "SG552",
+      "连狙猎枪 Hunting Rifle",
+      "连狙军用 Military Sniper",
+      "鸟狙 Scout",
+      "AWP",
+      "小手枪 Pistol",
+      "马格南 Magnum",
+      "M60",
+      "榴弹 Grenade Launcher"
+    ],
+    "近战": [
+      "平底锅 Frying Pan",
+      "吉他 Guitar",
+      "警棍 Nightstick",
+      "棒球棒 Baseball Bat",
+      "板球棒 Cricket Bat",
+      "高尔夫 Golf Club",
+      "砍刀 Machete",
+      "武士刀 Katana",
+      "撬棍 Crowbar",
+      "消防斧 Fire Axe",
+      "电锯 Chainsaw",
+      "小刀 Knife",
+      "防爆盾 Riot Shield"
+    ],
+    "消耗品": [
+      "燃烧瓶 Molotov",
+      "土制炸弹 Pipebomb",
+      "胆汁瓶 Bile Bomb",
+      "医疗包 Medkit",
+      "除颤器 Defibrillator",
+      "止痛药 Pills",
+      "肾上腺素 Adrenaline"
+    ],
+    "互动道具": [
+      "汽油桶 Gas Can",
+      "煤气罐 Propane Tank",
+      "氧气罐 Oxygen Tank",
+      "烟花盒 Firework Crate",
+      "子弹堆 Ammo Can/Pile",
+      "燃烧弹盒 Incendiary Ammo",
+      "高爆弹盒 Explosive Ammo",
+      "激光瞄准盒 Laser Sight"
+    ],
+    "环境": [
+      "光照",
+      "天空盒",
+      "材质贴图",
+      "粒子特效",
+      "安全屋",
+      "门",
+      "挂画",
+      "血迹效果",
+      "其他"
+    ],
+    "地图": [
+      "官方战役",
+      "社区战役",
+      "生存地图",
+      "对抗地图",
+      "突变模式"
+    ],
+    "界面": [
+      "HUD",
+      "血条",
+      "主菜单 Main Menu",
+      "载入界面",
+      "准星 Crosshair",
+      "提示图标"
+    ]
+  }
+}
