@@ -17,6 +17,7 @@
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTextEdit>
+#include <QMap>
 #include <QStringList>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -79,7 +80,7 @@ void MainWindow::setupUi() {
 
   setCentralWidget(central);
   resize(1280, 760);
-  setWindowTitle("L4D2 Mod Assistant");
+  setWindowTitle(QStringLiteral("L4D2 MOD 助手"));
 }
 
 QWidget* MainWindow::buildNavigationBar() {
@@ -88,9 +89,9 @@ QWidget* MainWindow::buildNavigationBar() {
   layout->setContentsMargins(0, 0, 0, 0);
   layout->setSpacing(8);
 
-  repoButton_ = new QPushButton(tr("Repository"), bar);
-  selectorButton_ = new QPushButton(tr("Selector"), bar);
-  settingsButton_ = new QPushButton(tr("Settings"), bar);
+  repoButton_ = new QPushButton(tr("仓库"), bar);
+  selectorButton_ = new QPushButton(tr("选择器"), bar);
+  settingsButton_ = new QPushButton(tr("设置"), bar);
 
   layout->addWidget(repoButton_);
   layout->addWidget(selectorButton_);
@@ -113,9 +114,9 @@ QWidget* MainWindow::buildRepositoryPage() {
 
   auto* filterRow = new QHBoxLayout();
   searchEdit_ = new QLineEdit(page);
-  searchEdit_->setPlaceholderText(tr("Search name / platform / notes"));
+  searchEdit_->setPlaceholderText(tr("搜索名称 / 平台 / 备注"));
   categoryFilter_ = new QComboBox(page);
-  importBtn_ = new QPushButton(tr("Import"), page);
+  importBtn_ = new QPushButton(tr("导入"), page);
   filterRow->addWidget(searchEdit_, 2);
   filterRow->addWidget(categoryFilter_, 1);
   filterRow->addStretch(1);
@@ -130,10 +131,21 @@ QWidget* MainWindow::buildRepositoryPage() {
   leftLayout->setSpacing(8);
 
   modTable_ = new QTableWidget(leftPanel);
-  modTable_->setColumnCount(9);
-  modTable_->setHorizontalHeaderLabels(
-      {tr("Name"), tr("Category"), tr("TAG"), tr("Author"), tr("Rating"), tr("Published"), tr("Platform"), tr("URL"),
-       tr("Notes")});
+  modTable_->setColumnCount(14);
+  modTable_->setHorizontalHeaderLabels({tr("名称"),
+                                        tr("分类"),
+                                        tr("标签"),
+                                        tr("作者"),
+                                        tr("评分"),
+                                        tr("状态"),
+                                        tr("最后发布日"),
+                                        tr("最后保存日"),
+                                        tr("平台"),
+                                        tr("链接"),
+                                        tr("健全度"),
+                                        tr("稳定性"),
+                                        tr("获取方式"),
+                                        tr("备注")});
   modTable_->horizontalHeader()->setStretchLastSection(true);
   modTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
   modTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -153,9 +165,9 @@ QWidget* MainWindow::buildRepositoryPage() {
   leftLayout->addWidget(modTable_, 1);
 
   auto* actionRow = new QHBoxLayout();
-  editBtn_ = new QPushButton(tr("Edit"), leftPanel);
-  deleteBtn_ = new QPushButton(tr("Delete"), leftPanel);
-  refreshBtn_ = new QPushButton(tr("Refresh"), leftPanel);
+  editBtn_ = new QPushButton(tr("编辑"), leftPanel);
+  deleteBtn_ = new QPushButton(tr("删除"), leftPanel);
+  refreshBtn_ = new QPushButton(tr("刷新"), leftPanel);
   actionRow->addWidget(editBtn_);
   actionRow->addWidget(deleteBtn_);
   actionRow->addStretch();
@@ -169,7 +181,7 @@ QWidget* MainWindow::buildRepositoryPage() {
   rightLayout->setContentsMargins(0, 0, 0, 0);
   rightLayout->setSpacing(12);
 
-  coverLabel_ = new QLabel(tr("Selected MOD image"), rightPanel);
+  coverLabel_ = new QLabel(tr("当前 MOD 图片"), rightPanel);
   coverLabel_->setAlignment(Qt::AlignCenter);
   coverLabel_->setMinimumSize(280, 240);
   coverLabel_->setStyleSheet("QLabel { background: #1f5f7f; color: white; border-radius: 6px; }");
@@ -179,7 +191,7 @@ QWidget* MainWindow::buildRepositoryPage() {
 
   noteView_ = new QTextEdit(rightPanel);
   noteView_->setReadOnly(true);
-  noteView_->setPlaceholderText(tr("Selected MOD notes"));
+  noteView_->setPlaceholderText(tr("当前 MOD 备注"));
 
   rightLayout->addWidget(coverLabel_);
   rightLayout->addWidget(metaLabel_);
@@ -207,7 +219,7 @@ QWidget* MainWindow::buildRepositoryPage() {
 QWidget* MainWindow::buildSelectorPage() {
   auto* page = new QWidget(this);
   auto* layout = new QVBoxLayout(page);
-  auto* label = new QLabel(tr("Selector placeholder"), page);
+  auto* label = new QLabel(tr("选择器占位内容"), page);
   label->setAlignment(Qt::AlignCenter);
   layout->addWidget(label, 1);
   return page;
@@ -216,7 +228,7 @@ QWidget* MainWindow::buildSelectorPage() {
 QWidget* MainWindow::buildSettingsPage() {
   auto* page = new QWidget(this);
   auto* layout = new QVBoxLayout(page);
-  auto* label = new QLabel(tr("Settings placeholder"), page);
+  auto* label = new QLabel(tr("设置占位内容"), page);
   label->setAlignment(Qt::AlignCenter);
   layout->addWidget(label, 1);
   return page;
@@ -224,13 +236,23 @@ QWidget* MainWindow::buildSettingsPage() {
 
 void MainWindow::reloadCategories() {
   categoryNames_.clear();
+  categoryParent_.clear();
   categoryFilter_->blockSignals(true);
   categoryFilter_->clear();
-  categoryFilter_->addItem(tr("All categories"), 0);
+  categoryFilter_->addItem(tr("全部分类"), 0);
   const auto categories = repo_->listCategories();
   for (const auto& category : categories) {
-    categoryNames_[category.id] = QString::fromStdString(category.name);
-    categoryFilter_->addItem(QString::fromStdString(category.name), category.id);
+    QString display = QString::fromStdString(category.name);
+    if (category.parent_id.has_value()) {
+      const int parentId = *category.parent_id;
+      categoryParent_[category.id] = parentId;
+      const auto parentIt = categoryNames_.find(parentId);
+      const QString parentName =
+          parentIt != categoryNames_.end() ? parentIt->second : QStringLiteral("Category#%1").arg(parentId);
+      display = parentName + QStringLiteral(" / ") + display;
+    }
+    categoryNames_[category.id] = display;
+    categoryFilter_->addItem(display, category.id);
   }
   categoryFilter_->blockSignals(false);
 }
@@ -238,8 +260,11 @@ void MainWindow::reloadCategories() {
 void MainWindow::loadData() {
   mods_ = repo_->listVisible();
   modTagsText_.clear();
+  modTagsCache_.clear();
   for (const auto& mod : mods_) {
-    modTagsText_[mod.id] = joinTags(repo_->listTagsForMod(mod.id));
+    auto tagRows = repo_->listTagsForMod(mod.id);
+    modTagsCache_[mod.id] = tagRows;
+    modTagsText_[mod.id] = formatTagSummary(tagRows, QStringLiteral("  |  "), QStringLiteral(" / "));
   }
   populateTable();
 }
@@ -247,24 +272,31 @@ void MainWindow::loadData() {
 void MainWindow::populateTable() {
   modTable_->setRowCount(0);
   const QString keyword = searchEdit_->text().trimmed();
-  const int categoryId = categoryFilter_->currentData().toInt();
+  const int filterCategoryId = categoryFilter_->currentData().toInt();
 
   int row = 0;
   for (const auto& mod : mods_) {
-    if (categoryId > 0 && mod.category_id != categoryId) {
+    if (!categoryMatchesFilter(mod.category_id, filterCategoryId)) {
       continue;
     }
 
     const QString name = QString::fromStdString(mod.name);
     const QString author = toDisplay(mod.author);
+    const QString status = toDisplay(mod.status, tr("最新"));
+    const QString lastPublished = toDisplay(mod.last_published_at, tr("-"));
+    const QString lastSaved = toDisplay(mod.last_saved_at, tr("-"));
     const QString platform = toDisplay(mod.source_platform);
     const QString url = toDisplay(mod.source_url);
     const QString note = toDisplay(mod.note);
+    const QString integrity = toDisplay(mod.integrity);
+    const QString stability = toDisplay(mod.stability);
+    const QString acquisition = toDisplay(mod.acquisition_method);
     const QString tags = modTagsText_[mod.id];
 
     if (!keyword.isEmpty()) {
       const QString haystack =
-          name + u' ' + author + u' ' + platform + u' ' + url + u' ' + note + u' ' + tags;
+          name + u' ' + author + u' ' + status + u' ' + lastPublished + u' ' + lastSaved + u' ' + platform + u' ' +
+          url + u' ' + note + u' ' + integrity + u' ' + stability + u' ' + acquisition + u' ' + tags;
       if (!haystack.contains(keyword, Qt::CaseInsensitive)) {
         continue;
       }
@@ -278,10 +310,15 @@ void MainWindow::populateTable() {
     modTable_->setItem(row, 2, new QTableWidgetItem(tags));
     modTable_->setItem(row, 3, new QTableWidgetItem(author));
     modTable_->setItem(row, 4, new QTableWidgetItem(mod.rating > 0 ? QString::number(mod.rating) : QString("-")));
-    modTable_->setItem(row, 5, new QTableWidgetItem(toDisplay(mod.published_at, tr("-"))));
-    modTable_->setItem(row, 6, new QTableWidgetItem(platform));
-    modTable_->setItem(row, 7, new QTableWidgetItem(url));
-    modTable_->setItem(row, 8, new QTableWidgetItem(note));
+    modTable_->setItem(row, 5, new QTableWidgetItem(status));
+    modTable_->setItem(row, 6, new QTableWidgetItem(lastPublished));
+    modTable_->setItem(row, 7, new QTableWidgetItem(lastSaved));
+    modTable_->setItem(row, 8, new QTableWidgetItem(platform));
+    modTable_->setItem(row, 9, new QTableWidgetItem(url));
+    modTable_->setItem(row, 10, new QTableWidgetItem(integrity.isEmpty() ? tr("-") : integrity));
+    modTable_->setItem(row, 11, new QTableWidgetItem(stability.isEmpty() ? tr("-") : stability));
+    modTable_->setItem(row, 12, new QTableWidgetItem(acquisition.isEmpty() ? tr("-") : acquisition));
+    modTable_->setItem(row, 13, new QTableWidgetItem(note));
     ++row;
   }
 
@@ -304,7 +341,14 @@ void MainWindow::updateDetailForMod(int modId) {
 
   const ModRow& mod = *it;
   const QString categoryName = categoryNameFor(mod.category_id);
-  const QString tags = modTagsText_[mod.id];
+  QString tags;
+  const auto cacheIt = modTagsCache_.find(mod.id);
+  if (cacheIt != modTagsCache_.end()) {
+    tags = formatTagSummary(cacheIt->second, QStringLiteral("\n"), QStringLiteral(" / "));
+  } else {
+    auto rows = repo_->listTagsForMod(mod.id);
+    tags = formatTagSummary(rows, QStringLiteral("\n"), QStringLiteral(" / "));
+  }
 
   coverLabel_->setText(QString());
   QPixmap pix;
@@ -326,25 +370,28 @@ void MainWindow::updateDetailForMod(int modId) {
   };
   if (!tryLoad(QString::fromStdString(mod.cover_path))) {
     coverLabel_->setPixmap(QPixmap());
-    coverLabel_->setText(tr("No cover"));
+    coverLabel_->setText(tr("无封面"));
   }
 
   noteView_->setPlainText(QString::fromStdString(mod.note));
 
   QStringList meta;
-  meta << tr("Name: %1").arg(QString::fromStdString(mod.name));
-  meta << tr("Category: %1").arg(categoryName.isEmpty() ? tr("Uncategorized") : categoryName);
-  meta << tr("TAG: %1").arg(tags.isEmpty() ? tr("None") : tags);
-  meta << tr("Author: %1").arg(toDisplay(mod.author, tr("Unknown")));
-  meta << tr("Rating: %1").arg(mod.rating > 0 ? QString::number(mod.rating) : tr("Unrated"));
-  meta << tr("Size: %1 MB").arg(QString::number(mod.size_mb, 'f', 2));
-  if (!mod.published_at.empty()) meta << tr("Published: %1").arg(QString::fromStdString(mod.published_at));
-  if (!mod.source_platform.empty()) meta << tr("Platform: %1").arg(QString::fromStdString(mod.source_platform));
-  if (!mod.source_url.empty()) meta << tr("URL: %1").arg(QString::fromStdString(mod.source_url));
-  if (!mod.file_path.empty()) meta << tr("File: %1").arg(QString::fromStdString(mod.file_path));
-  if (!mod.file_hash.empty()) meta << tr("Hash: %1").arg(QString::fromStdString(mod.file_hash));
-  meta << tr("Created: %1").arg(QString::fromStdString(mod.created_at));
-  meta << tr("Updated: %1").arg(QString::fromStdString(mod.updated_at));
+  meta << tr("名称：%1").arg(QString::fromStdString(mod.name));
+  meta << tr("分类：%1").arg(categoryName.isEmpty() ? tr("未分类") : categoryName);
+  meta << tr("标签：%1").arg(tags.isEmpty() ? tr("无") : tags);
+  meta << tr("作者：%1").arg(toDisplay(mod.author, tr("未知")));
+  meta << tr("评分：%1").arg(mod.rating > 0 ? QString::number(mod.rating) : tr("未评分"));
+  meta << tr("大小：%1 MB").arg(QString::number(mod.size_mb, 'f', 2));
+  meta << tr("状态：%1").arg(toDisplay(mod.status, tr("最新")));
+  meta << tr("最后发布日：%1").arg(toDisplay(mod.last_published_at, tr("-")));
+  meta << tr("最后保存日：%1").arg(toDisplay(mod.last_saved_at, tr("-")));
+  meta << tr("健全度：%1").arg(toDisplay(mod.integrity, tr("-")));
+  meta << tr("稳定性：%1").arg(toDisplay(mod.stability, tr("-")));
+  meta << tr("获取方式：%1").arg(toDisplay(mod.acquisition_method, tr("-")));
+  if (!mod.source_platform.empty()) meta << tr("平台：%1").arg(QString::fromStdString(mod.source_platform));
+  if (!mod.source_url.empty()) meta << tr("链接：%1").arg(QString::fromStdString(mod.source_url));
+  if (!mod.file_path.empty()) meta << tr("文件：%1").arg(QString::fromStdString(mod.file_path));
+  if (!mod.file_hash.empty()) meta << tr("哈希：%1").arg(QString::fromStdString(mod.file_hash));
   metaLabel_->setText(meta.join('\n'));
 }
 
@@ -356,11 +403,58 @@ QString MainWindow::categoryNameFor(int categoryId) const {
     }
     return QStringLiteral("Category#%1").arg(categoryId);
   }
-  return tr("Uncategorized");
+  return tr("未分类");
+}
+
+bool MainWindow::categoryMatchesFilter(int modCategoryId, int filterCategoryId) const {
+  if (filterCategoryId <= 0) {
+    return true;
+  }
+
+  int currentId = modCategoryId;
+  while (currentId > 0) {
+    if (currentId == filterCategoryId) {
+      return true;
+    }
+    const auto it = categoryParent_.find(currentId);
+    if (it == categoryParent_.end()) {
+      break;
+    }
+    currentId = it->second;
+  }
+  return false;
 }
 
 QString MainWindow::tagsTextForMod(int modId) {
   return modTagsText_[modId];
+}
+
+QString MainWindow::formatTagSummary(const std::vector<TagWithGroupRow>& rows,
+                                     const QString& groupSeparator,
+                                     const QString& tagSeparator) const {
+  if (rows.empty()) {
+    return {};
+  }
+
+  QMap<QString, QStringList> grouped;
+  for (const auto& row : rows) {
+    const QString groupName = QString::fromStdString(row.group_name);
+    const QString tagName = QString::fromStdString(row.name);
+    QStringList& list = grouped[groupName];
+    if (!list.contains(tagName)) {
+      list.append(tagName);
+    }
+  }
+
+  QStringList sections;
+  for (auto it = grouped.constBegin(); it != grouped.constEnd(); ++it) {
+    QStringList tags = it.value();
+    std::sort(tags.begin(), tags.end(), [](const QString& a, const QString& b) {
+      return a.localeAwareCompare(b) < 0;
+    });
+    sections << QString("%1: %2").arg(it.key(), tags.join(tagSeparator));
+  }
+  return sections.join(groupSeparator);
 }
 
 std::vector<TagDescriptor> MainWindow::tagsForMod(int modId) const {
@@ -391,13 +485,13 @@ void MainWindow::onImport() {
 void MainWindow::onEdit() {
   auto* item = modTable_->currentItem();
   if (!item) {
-    QMessageBox::information(this, tr("No selection"), tr("Please select a MOD first."));
+    QMessageBox::information(this, tr("未选择"), tr("请先选择一个 MOD。"));
     return;
   }
   const int modId = modTable_->item(modTable_->currentRow(), 0)->data(Qt::UserRole).toInt();
   auto mod = repo_->findMod(modId);
   if (!mod) {
-    QMessageBox::warning(this, tr("Missing"), tr("The MOD record no longer exists."));
+    QMessageBox::warning(this, tr("缺失"), tr("该 MOD 记录已不存在。"));
     return;
   }
 
@@ -419,7 +513,7 @@ void MainWindow::onDelete() {
   const int modId = modTable_->item(modTable_->currentRow(), 0)->data(Qt::UserRole).toInt();
 
   const auto reply =
-      QMessageBox::question(this, tr("Hide MOD"), tr("Hide this MOD from the repository?"), QMessageBox::Yes | QMessageBox::No);
+      QMessageBox::question(this, tr("隐藏 MOD"), tr("是否从仓库中隐藏该 MOD？"), QMessageBox::Yes | QMessageBox::No);
   if (reply != QMessageBox::Yes) return;
 
   repo_->setModDeleted(modId, true);

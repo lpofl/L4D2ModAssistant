@@ -1,5 +1,8 @@
-
 #include <QApplication>
+#include <QLibraryInfo>
+#include <QLocale>
+#include <QTranslator>
+
 #include "app/ui/MainWindow.h"
 
 /**
@@ -8,8 +11,16 @@
  */
 
 int main(int argc, char *argv[]) {
-    QApplication app(argc, argv);
-    MainWindow w;
-    w.show();
-    return app.exec();
+  QLocale::setDefault(QLocale(QLocale::Chinese, QLocale::China));
+  QApplication app(argc, argv);
+
+  QTranslator qtTranslator;
+  const QString qtTranslations = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
+  if (qtTranslator.load(QLocale(), QStringLiteral("qtbase"), QStringLiteral("_"), qtTranslations)) {
+    app.installTranslator(&qtTranslator);
+  }
+
+  MainWindow w;
+  w.show();
+  return app.exec();
 }

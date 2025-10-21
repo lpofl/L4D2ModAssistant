@@ -24,7 +24,9 @@ struct ModRow {
   int rating{0};          ///< 0 means unset
   int category_id{0};     ///< 0 means unset
   std::string note;
-  std::string published_at;
+  std::string last_published_at;
+  std::string last_saved_at;
+  std::string status{"最新"};
   std::string source_platform;
   std::string source_url;
   bool is_deleted{false};
@@ -32,8 +34,9 @@ struct ModRow {
   std::string file_path;
   std::string file_hash;
   double size_mb{0.0};
-  std::string created_at;
-  std::string updated_at;
+  std::string integrity;
+  std::string stability;
+  std::string acquisition_method;
 };
 
 class RepositoryDao {

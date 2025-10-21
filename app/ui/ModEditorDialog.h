@@ -2,8 +2,14 @@
 
 #include <QDialog>
 #include <QString>
+#include <QMap>
 #include <memory>
+#include <optional>
+#include <unordered_map>
 #include <vector>
+#include <QStringList>
+
+#include "core/config/AttributeOptions.h"
 
 #include "core/repo/RepositoryService.h"
 
@@ -13,11 +19,10 @@ class QPushButton;
 class QSpinBox;
 class QDoubleSpinBox;
 class QPlainTextEdit;
-class QTreeWidget;
 class QDialogButtonBox;
-class QTreeWidgetItem;
 class QFileInfo;
-class QString;
+class QVBoxLayout;
+class QWidget;
 
 /**
  * @brief Dialog used for creating or editing a MOD entry plus tag assignments.
@@ -47,16 +52,33 @@ private slots:
   void onFilePathEdited(const QString& path);
   void onSourceUrlEdited(const QString& url);
   void onSourcePlatformEdited(const QString& text);
+  void onPrimaryCategoryChanged(int index);
+  void onAddTagRowClicked();
 
 private:
+  struct TagRowWidgets {
+    QWidget* container{nullptr};
+    QComboBox* groupCombo{nullptr};
+    QComboBox* tagCombo{nullptr};
+    QPushButton* addBtn{nullptr};
+    QPushButton* removeBtn{nullptr};
+  };
+
   void buildUi();
   void loadCategories();
   void loadTags();
   void setCheckedTags(const std::vector<TagDescriptor>& tags);
-  QTreeWidgetItem* ensureGroupItem(const QString& groupName);
   void applyFileMetadata(const QString& path);
   QString locateCoverSibling(const QFileInfo& fileInfo) const;
   void maybeAutoFillPlatform(const QString& url);
+  void rebuildSecondaryCategories(std::optional<int> parentId);
+  TagRowWidgets* addTagRow(const QString& group = {}, const QString& tag = {}, int insertIndex = -1);
+  void removeTagRow(TagRowWidgets* row);
+  void refreshTagChoices(TagRowWidgets* row);
+  void setupSearchableCombo(QComboBox* combo, const QString& placeholder = {});
+  void clearTagRows();
+  void updateTagRowRemoveButtons();
+  void loadAttributeOptions();
 
   RepositoryService& service_;
   int modId_{0};
@@ -66,11 +88,17 @@ private:
 
   QLineEdit* nameEdit_{};
   QLineEdit* authorEdit_{};
-  QComboBox* categoryCombo_{};
+  QComboBox* primaryCategoryCombo_{};
+  QComboBox* secondaryCategoryCombo_{};
   QPushButton* addCategoryBtn_{};
   QSpinBox* ratingSpin_{};
   QDoubleSpinBox* sizeSpin_{};
-  QLineEdit* publishedEdit_{};
+  QLineEdit* lastPublishedEdit_{};
+  QLineEdit* lastSavedEdit_{};
+  QComboBox* statusCombo_{};
+  QComboBox* integrityCombo_{};
+  QComboBox* stabilityCombo_{};
+  QComboBox* acquisitionCombo_{};
   QLineEdit* sourcePlatformEdit_{};
   QLineEdit* sourceUrlEdit_{};
   QLineEdit* filePathEdit_{};
@@ -79,12 +107,17 @@ private:
   QPushButton* browseCoverBtn_{};
   QLineEdit* hashEdit_{};
   QPlainTextEdit* noteEdit_{};
-  QTreeWidget* tagTree_{};
-  QComboBox* tagGroupCombo_{};
-  QLineEdit* newTagEdit_{};
-  QPushButton* addTagBtn_{};
+  QWidget* tagRowsContainer_{};
+  QVBoxLayout* tagRowsLayout_{};
+  QPushButton* addTagRowButton_{};
+  QPushButton* manageTagsButton_{};
+  std::vector<std::unique_ptr<TagRowWidgets>> tagRows_;
   QDialogButtonBox* buttonBox_{};
 
   std::vector<CategoryRow> categories_;
+  std::vector<CategoryRow> primaryCategories_;
+  std::unordered_map<int, std::vector<CategoryRow>> secondaryCategories_;
   std::vector<TagGroupRow> tagGroups_;
+  QMap<QString, QStringList> tagItemsByGroup_;
+  config::ModAttributeOptions attributeOptions_;
 };

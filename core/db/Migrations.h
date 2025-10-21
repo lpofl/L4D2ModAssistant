@@ -249,7 +249,9 @@ inline void applyMigration1(Db& db) {
       rating INTEGER CHECK(rating BETWEEN 1 AND 5),
       category_id INTEGER REFERENCES categories(id),
       note TEXT,
-      published_at TEXT,
+      last_published_at TEXT,
+      last_saved_at TEXT,
+      status TEXT NOT NULL DEFAULT '最新',
       source_platform TEXT,
       source_url TEXT,
       is_deleted INTEGER NOT NULL DEFAULT 0,
@@ -257,8 +259,9 @@ inline void applyMigration1(Db& db) {
       file_path TEXT,
       file_hash TEXT,
       size_mb REAL NOT NULL DEFAULT 0.0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      integrity TEXT,
+      stability TEXT,
+      acquisition_method TEXT,
       UNIQUE(file_hash)
     );
 
@@ -351,8 +354,7 @@ inline void applyMigration1(Db& db) {
       INSERT OR IGNORE INTO tag_groups(name, sort_order) VALUES
         ('Anime', 10),
         ('Realistic', 20),
-        ('Maturity', 30),
-        ('Acquisition', 40);
+        ('Maturity', 30);
     )SQL");
     db.exec(R"SQL(
       INSERT OR IGNORE INTO tags(group_id, name)
@@ -375,13 +377,6 @@ inline void applyMigration1(Db& db) {
         SELECT id, 'Safe' FROM tag_groups WHERE name = 'Maturity';
       INSERT OR IGNORE INTO tags(group_id, name)
         SELECT id, 'NSFW' FROM tag_groups WHERE name = 'Maturity';
-
-      INSERT OR IGNORE INTO tags(group_id, name)
-        SELECT id, 'Free' FROM tag_groups WHERE name = 'Acquisition';
-      INSERT OR IGNORE INTO tags(group_id, name)
-        SELECT id, 'Paid' FROM tag_groups WHERE name = 'Acquisition';
-      INSERT OR IGNORE INTO tags(group_id, name)
-        SELECT id, 'Commissioned' FROM tag_groups WHERE name = 'Acquisition';
     )SQL");
   }
 

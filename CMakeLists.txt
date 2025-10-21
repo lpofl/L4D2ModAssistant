@@ -44,6 +44,8 @@ add_executable(L4D2ModAssistant
   core/repo/RepositoryDao.h
   core/repo/RepositoryService.cpp
   core/repo/RepositoryService.h
+  core/config/AttributeOptions.cpp
+  core/config/AttributeOptions.h
   core/config/Settings.cpp
   core/config/Settings.h
   core/log/Log.cpp
@@ -82,6 +84,8 @@ add_executable(L4D2ModAssistantTests
   core/repo/FixedBundleDao.h
   core/repo/RepositoryService.cpp
   core/repo/RepositoryService.h
+  core/config/AttributeOptions.cpp
+  core/config/AttributeOptions.h
 )
 
 target_include_directories(L4D2ModAssistantTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

@@ -47,6 +47,10 @@ private:
   void updateDetailForMod(int modId);
   QString categoryNameFor(int categoryId) const;
   QString tagsTextForMod(int modId);
+  QString formatTagSummary(const std::vector<TagWithGroupRow>& rows,
+                           const QString& groupSeparator,
+                           const QString& tagSeparator) const;
+  bool categoryMatchesFilter(int modCategoryId, int filterCategoryId) const;
   std::vector<TagDescriptor> tagsForMod(int modId) const;
   void updateTabButtonState(QPushButton* active);
 
@@ -74,5 +78,7 @@ private:
   // Data cache
   std::vector<ModRow> mods_;
   std::unordered_map<int, QString> categoryNames_;
+  std::unordered_map<int, int> categoryParent_;
   std::unordered_map<int, QString> modTagsText_;
+  std::unordered_map<int, std::vector<TagWithGroupRow>> modTagsCache_;
 };
