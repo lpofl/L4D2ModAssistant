@@ -24,6 +24,8 @@ add_executable(L4D2ModAssistant
   app/ui/MainWindow.cpp
   app/ui/MainWindow.h
   app/ui/MainWindow.ui
+  app/ui/ModEditorDialog.cpp
+  app/ui/ModEditorDialog.h
   core/db/Db.cpp
   core/db/Db.h
   core/db/Stmt.h

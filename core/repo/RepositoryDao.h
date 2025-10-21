@@ -1,37 +1,53 @@
 #pragma once
+
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
+
 #include "core/db/Db.h"
 #include "core/db/Stmt.h"
 
 /**
  * @file RepositoryDao.h
  * @brief Data access helpers for the mods table and related views.
- * @note 模组主表 DAO，封装基础增查。
  */
 
+/**
+ * @brief POD representing a row in the mods table.
+ * @note Optional database fields use sentinel values: empty string / zero.
+ */
 struct ModRow {
-  int id;
+  int id{0};
   std::string name;
-  int rating;
-  int category_id;
-  double size_mb;
-  bool is_deleted;
+  std::string author;
+  int rating{0};             ///< 0 means “unset”
+  int category_id{0};        ///< 0 means “unset”
+  std::string note;
+  std::string published_at;
+  std::string source;
+  bool is_deleted{false};
+  std::string cover_path;
   std::string file_path;
   std::string file_hash;
+  double size_mb{0.0};
+  std::string created_at;
+  std::string updated_at;
 };
 
 class RepositoryDao {
 public:
   explicit RepositoryDao(std::shared_ptr<Db> db) : db_(std::move(db)) {}
 
-  /// 插入 MOD 记录，同时处理可空字段
+  /// Insert a MOD row (id is ignored and auto generated).
   int insertMod(const ModRow& row);
-  /// 按主键查询 MOD
+  /// Update mutable MOD fields (requires valid id).
+  void updateMod(const ModRow& row);
+  /// Toggle logical deletion flag.
+  void setDeleted(int id, bool deleted);
+  /// Fetch row by primary key.
   std::optional<ModRow> findById(int id) const;
-  /// 查询可见（未删除） MOD 列表
+  /// List all visible (not deleted) mods.
   std::vector<ModRow> listVisible() const;
 
 private:

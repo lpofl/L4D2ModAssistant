@@ -1,9 +1,10 @@
 #include "core/repo/RepositoryService.h"
+
 #include <algorithm>
 #include <cctype>
 #include <string_view>
-#include <utility>
 #include <unordered_set>
+#include <utility>
 
 namespace {
 
@@ -52,16 +53,20 @@ void replaceModTags(TagDao& tagDao, int modId, const std::vector<int>& tagIds) {
 } // namespace
 
 RepositoryService::RepositoryService(std::shared_ptr<Db> db)
-  : db_(std::move(db)),
-    repoDao_(std::make_unique<RepositoryDao>(db_)),
-    categoryDao_(std::make_unique<CategoryDao>(db_)),
-    tagDao_(std::make_unique<TagDao>(db_)),
-    relationDao_(std::make_unique<ModRelationDao>(db_)),
-    savedSchemeDao_(std::make_unique<SavedSchemeDao>(db_)),
-    fixedBundleDao_(std::make_unique<FixedBundleDao>(db_)) {}
+    : db_(std::move(db)),
+      repoDao_(std::make_unique<RepositoryDao>(db_)),
+      categoryDao_(std::make_unique<CategoryDao>(db_)),
+      tagDao_(std::make_unique<TagDao>(db_)),
+      relationDao_(std::make_unique<ModRelationDao>(db_)),
+      savedSchemeDao_(std::make_unique<SavedSchemeDao>(db_)),
+      fixedBundleDao_(std::make_unique<FixedBundleDao>(db_)) {}
 
 std::vector<ModRow> RepositoryService::listVisible() const {
   return repoDao_->listVisible();
+}
+
+std::optional<ModRow> RepositoryService::findMod(int modId) const {
+  return repoDao_->findById(modId);
 }
 
 int RepositoryService::createModWithTags(const ModRow& mod, const std::vector<TagDescriptor>& tags) {
@@ -73,11 +78,26 @@ int RepositoryService::createModWithTags(const ModRow& mod, const std::vector<Ta
   return modId;
 }
 
+void RepositoryService::updateModWithTags(const ModRow& mod, const std::vector<TagDescriptor>& tags) {
+  if (mod.id <= 0) {
+    throw DbError("updateModWithTags requires a valid mod id");
+  }
+  Db::Tx tx(*db_);
+  repoDao_->updateMod(mod);
+  const auto tagIds = ensureTagIds(*tagDao_, tags);
+  replaceModTags(*tagDao_, mod.id, tagIds);
+  tx.commit();
+}
+
 void RepositoryService::updateModTags(int modId, const std::vector<TagDescriptor>& tags) {
   Db::Tx tx(*db_);
   const auto tagIds = ensureTagIds(*tagDao_, tags);
   replaceModTags(*tagDao_, modId, tagIds);
   tx.commit();
+}
+
+void RepositoryService::setModDeleted(int modId, bool deleted) {
+  repoDao_->setDeleted(modId, deleted);
 }
 
 std::vector<CategoryRow> RepositoryService::listCategories() const {
@@ -124,17 +144,15 @@ void RepositoryService::removeRelation(int aModId, int bModId, const std::string
 }
 
 std::vector<FixedBundleRow> RepositoryService::listFixedBundles() const {
-  // 固定搭配列表供导入器/策略使用
   return fixedBundleDao_->listBundles();
 }
 
 std::vector<FixedBundleItemRow> RepositoryService::listFixedBundleItems(int bundleId) const {
-  // 查询固定搭配包含的 MOD
   return fixedBundleDao_->listItems(bundleId);
 }
 
-int RepositoryService::createFixedBundle(const std::string& name, const std::vector<int>& modIds, const std::optional<std::string>& note) {
-  // 新建固定搭配并写入 MOD 列表
+int RepositoryService::createFixedBundle(const std::string& name, const std::vector<int>& modIds,
+                                         const std::optional<std::string>& note) {
   Db::Tx tx(*db_);
   const int bundleId = fixedBundleDao_->insertBundle(name, note);
   fixedBundleDao_->clearItems(bundleId);
@@ -145,8 +163,8 @@ int RepositoryService::createFixedBundle(const std::string& name, const std::vec
   return bundleId;
 }
 
-void RepositoryService::updateFixedBundle(int bundleId, const std::string& name, const std::vector<int>& modIds, const std::optional<std::string>& note) {
-  // 修改固定搭配信息，同步其 MOD 列表
+void RepositoryService::updateFixedBundle(int bundleId, const std::string& name, const std::vector<int>& modIds,
+                                          const std::optional<std::string>& note) {
   Db::Tx tx(*db_);
   fixedBundleDao_->updateBundle(bundleId, name, note);
   fixedBundleDao_->clearItems(bundleId);
@@ -157,22 +175,19 @@ void RepositoryService::updateFixedBundle(int bundleId, const std::string& name,
 }
 
 void RepositoryService::deleteFixedBundle(int bundleId) {
-  // 删除固定搭配
   fixedBundleDao_->deleteBundle(bundleId);
 }
 
 std::vector<SavedSchemeRow> RepositoryService::listSavedSchemes() const {
-  // 获取所有已保存的组合方案
   return savedSchemeDao_->listAll();
 }
 
 std::vector<SavedSchemeItemRow> RepositoryService::listSavedSchemeItems(int schemeId) const {
-  // 查询组合方案内包含的 MOD
   return savedSchemeDao_->listItems(schemeId);
 }
 
-int RepositoryService::createSavedScheme(const std::string& name, double budgetMb, const std::vector<SavedSchemeItemRow>& items) {
-  // 保存组合方案（含锁定状态）
+int RepositoryService::createSavedScheme(const std::string& name, double budgetMb,
+                                         const std::vector<SavedSchemeItemRow>& items) {
   Db::Tx tx(*db_);
   const int schemeId = savedSchemeDao_->insert(name, budgetMb);
   for (const auto& item : items) {
@@ -185,7 +200,6 @@ int RepositoryService::createSavedScheme(const std::string& name, double budgetM
 }
 
 void RepositoryService::updateSavedSchemeItems(int schemeId, const std::vector<SavedSchemeItemRow>& items) {
-  // 用新的条目集合覆盖旧方案内容
   Db::Tx tx(*db_);
   savedSchemeDao_->clearItems(schemeId);
   for (const auto& item : items) {
@@ -197,6 +211,5 @@ void RepositoryService::updateSavedSchemeItems(int schemeId, const std::vector<S
 }
 
 void RepositoryService::deleteSavedScheme(int schemeId) {
-  // 删除组合方案
   savedSchemeDao_->deleteScheme(schemeId);
 }

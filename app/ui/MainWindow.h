@@ -1,38 +1,77 @@
-
 #pragma once
+
 #include <QMainWindow>
 #include <memory>
+#include <unordered_map>
+#include <vector>
+
 #include "core/repo/RepositoryService.h"
 
-/**
- * @file MainWindow.h
- * @brief 应用主窗口，负责展示仓库可见 Mod 列表。
- */
-
+class QStackedWidget;
+class QLineEdit;
+class QComboBox;
 class QTableWidget;
 class QPushButton;
+class QLabel;
+class QTextEdit;
 
 /**
- * @brief 主窗口类，包含基础的表格展示与刷新逻辑。
+ * @brief Application main window hosting repository/selector/settings tabs.
  */
 class MainWindow : public QMainWindow {
-    Q_OBJECT
+  Q_OBJECT
 public:
-    /**
-     * @brief 构造函数。
-     * @param parent 父窗口。
-     */
-    explicit MainWindow(QWidget* parent = nullptr);
-private slots:
-    /** @brief 点击“刷新”按钮时回调，重新加载数据。 */
-    void onRefresh();
-private:
-    /** @brief 初始化 UI 控件与布局。 */
-    void setupUi();
-    /** @brief 从仓库加载数据并填充表格。 */
-    void loadData();
+  explicit MainWindow(QWidget* parent = nullptr);
 
-    QTableWidget* table_{};              ///< 数据表格。
-    QPushButton* refreshBtn_{};          ///< 刷新按钮。
-    std::unique_ptr<RepositoryService> repo_; ///< 仓库服务。
+private slots:
+  void onRefresh();
+  void onImport();
+  void onEdit();
+  void onDelete();
+  void onFilterChanged();
+  void onCurrentRowChanged(int currentRow, int currentColumn, int previousRow, int previousColumn);
+  void switchToRepository();
+  void switchToSelector();
+  void switchToSettings();
+
+private:
+  void setupUi();
+  QWidget* buildNavigationBar();
+  QWidget* buildRepositoryPage();
+  QWidget* buildSelectorPage();
+  QWidget* buildSettingsPage();
+  void reloadCategories();
+  void loadData();
+  void populateTable();
+  void updateDetailForMod(int modId);
+  QString categoryNameFor(int categoryId) const;
+  QString tagsTextForMod(int modId);
+  std::vector<TagDescriptor> tagsForMod(int modId) const;
+  void updateTabButtonState(QPushButton* active);
+
+  std::unique_ptr<RepositoryService> repo_;
+  QString repoDir_;
+
+  // Navigation
+  QStackedWidget* stack_{};
+  QPushButton* repoButton_{};
+  QPushButton* selectorButton_{};
+  QPushButton* settingsButton_{};
+
+  // Repository page widgets
+  QLineEdit* searchEdit_{};
+  QComboBox* categoryFilter_{};
+  QTableWidget* modTable_{};
+  QPushButton* importBtn_{};
+  QPushButton* editBtn_{};
+  QPushButton* deleteBtn_{};
+  QPushButton* refreshBtn_{};
+  QLabel* coverLabel_{};
+  QTextEdit* noteView_{};
+  QLabel* metaLabel_{};
+
+  // Data cache
+  std::vector<ModRow> mods_;
+  std::unordered_map<int, QString> categoryNames_;
+  std::unordered_map<int, QString> modTagsText_;
 };

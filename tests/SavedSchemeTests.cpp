@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <string>
@@ -6,10 +8,10 @@
 
 #include "core/db/Db.h"
 #include "core/db/Migrations.h"
+#include "core/repo/FixedBundleDao.h"
 #include "core/repo/RepositoryDao.h"
 #include "core/repo/RepositoryService.h"
 #include "core/repo/SavedSchemeDao.h"
-#include "core/repo/FixedBundleDao.h"
 
 namespace {
 
@@ -20,33 +22,32 @@ std::shared_ptr<Db> createTestDb() {
 }
 
 int insertTestMod(RepositoryDao& repo, const std::string& name, const std::string& hash) {
-  ModRow mod{
-    0,                 // id will be generated
-    name,
-    5,                 // rating
-    0,                 // category_id
-    100.0,             // size
-    false,             // is_deleted
-    "",                // file_path
-    hash
-  };
+  ModRow mod;
+  mod.name = name;
+  mod.rating = 5;
+  mod.size_mb = 100.0;
+  mod.file_hash = hash;
   return repo.insertMod(mod);
 }
 
-} // namespace
+}  // namespace
 
 TEST(SavedSchemeDaoTest, CreateAndQueryScheme) {
   auto db = createTestDb();
   RepositoryDao repo(db);
   SavedSchemeDao dao(db);
 
+  const auto baseline = dao.listAll();
   const int modId = insertTestMod(repo, "Demo Mod", "hash-scheme-1");
   const int schemeId = dao.insert("Scheme-A", 512.0);
   dao.addItem({schemeId, modId, true});
 
   auto schemes = dao.listAll();
-  ASSERT_EQ(schemes.size(), 1u);
-  EXPECT_EQ(schemes[0].name, "Scheme-A");
+  ASSERT_EQ(schemes.size(), baseline.size() + 1);
+  const auto it =
+      std::find_if(schemes.begin(), schemes.end(), [schemeId](const auto& row) { return row.id == schemeId; });
+  ASSERT_NE(it, schemes.end());
+  EXPECT_EQ(it->name, "Scheme-A");
 
   auto fetched = dao.findById(schemeId);
   ASSERT_TRUE(fetched.has_value());
@@ -108,13 +109,21 @@ TEST(RepositoryServiceTest, CreateBundlesAndSchemes) {
   auto db = createTestDb();
   RepositoryService service(db);
 
-  // 创建两个 MOD，并绑定 TAG
-  ModRow modA{0, "ServiceModA", 4, 0, 64.0, false, "", "hash-service-1"};
-  ModRow modB{0, "ServiceModB", 5, 0, 80.0, false, "", "hash-service-2"};
-  const int modAId = service.createModWithTags(modA, {{ "Anime", "VRC" }});
-  const int modBId = service.createModWithTags(modB, {{ "Anime", "Arknights" }});
+  ModRow modA;
+  modA.name = "ServiceModA";
+  modA.rating = 4;
+  modA.size_mb = 64.0;
+  modA.file_hash = "hash-service-1";
 
-  // 固定搭配：锁定常用 MOD 集
+  ModRow modB;
+  modB.name = "ServiceModB";
+  modB.rating = 5;
+  modB.size_mb = 80.0;
+  modB.file_hash = "hash-service-2";
+
+  const int modAId = service.createModWithTags(modA, {{"Anime", "VRC"}});
+  const int modBId = service.createModWithTags(modB, {{"Anime", "Arknights"}});
+
   const int bundleId = service.createFixedBundle("固定搭配-A", {modAId, modBId}, std::string("常用组合"));
   auto bundles = service.listFixedBundles();
   ASSERT_EQ(bundles.size(), 1u);
@@ -123,19 +132,19 @@ TEST(RepositoryServiceTest, CreateBundlesAndSchemes) {
   auto bundleItems = service.listFixedBundleItems(bundleId);
   EXPECT_EQ(bundleItems.size(), 2u);
 
-  // 组合方案：保存一次随机器输出
   SavedSchemeItemRow schemeItem{0, modAId, true};
   const int schemeId = service.createSavedScheme("方案-A", 256.0, {schemeItem});
   auto schemes = service.listSavedSchemes();
-  ASSERT_EQ(schemes.size(), 1u);
-  EXPECT_EQ(schemes[0].name, "方案-A");
+  auto schemeIt =
+      std::find_if(schemes.begin(), schemes.end(), [schemeId](const auto& row) { return row.id == schemeId; });
+  ASSERT_NE(schemeIt, schemes.end());
+  EXPECT_EQ(schemeIt->name, "方案-A");
 
   auto schemeItems = service.listSavedSchemeItems(schemeId);
   ASSERT_EQ(schemeItems.size(), 1u);
   EXPECT_TRUE(schemeItems[0].is_locked);
   EXPECT_EQ(schemeItems[0].mod_id, modAId);
 
-  // 更新固定搭配与方案内容
   service.updateFixedBundle(bundleId, "固定搭配-B", {modBId}, std::nullopt);
   service.updateSavedSchemeItems(schemeId, {SavedSchemeItemRow{schemeId, modBId, false}});
 
@@ -150,7 +159,9 @@ TEST(RepositoryServiceTest, CreateBundlesAndSchemes) {
   EXPECT_FALSE(schemeItems[0].is_locked);
   EXPECT_EQ(schemeItems[0].mod_id, modBId);
 
-  // 清理方案，确保删除接口可用
   service.deleteSavedScheme(schemeId);
-  EXPECT_TRUE(service.listSavedSchemes().empty());
+  schemes = service.listSavedSchemes();
+  auto deletedIt =
+      std::find_if(schemes.begin(), schemes.end(), [schemeId](const auto& row) { return row.id == schemeId; });
+  EXPECT_EQ(deletedIt, schemes.end());
 }
