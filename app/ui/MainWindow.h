@@ -1,6 +1,7 @@
-#pragma once
+﻿#pragma once
 
 #include <QMainWindow>
+#include <QString>
 #include <memory>
 #include <unordered_map>
 #include <vector>

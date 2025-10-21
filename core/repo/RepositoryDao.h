@@ -21,11 +21,12 @@ struct ModRow {
   int id{0};
   std::string name;
   std::string author;
-  int rating{0};             ///< 0 means “unset”
-  int category_id{0};        ///< 0 means “unset”
+  int rating{0};          ///< 0 means unset
+  int category_id{0};     ///< 0 means unset
   std::string note;
   std::string published_at;
-  std::string source;
+  std::string source_platform;
+  std::string source_url;
   bool is_deleted{false};
   std::string cover_path;
   std::string file_path;

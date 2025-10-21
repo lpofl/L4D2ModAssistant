@@ -27,14 +27,15 @@ ModRow readRow(Stmt& stmt) {
       stmt.getInt(4),              // category_id (0 if null)
       stmt.getText(5),             // note
       stmt.getText(6),             // published_at
-      stmt.getText(7),             // source
-      stmt.getInt(8) != 0,         // is_deleted
-      stmt.getText(9),             // cover_path
-      stmt.getText(10),            // file_path
-      stmt.getText(11),            // file_hash
-      stmt.getDouble(12),          // size_mb
-      stmt.getText(13),            // created_at
-      stmt.getText(14)             // updated_at
+      stmt.getText(7),             // source_platform
+      stmt.getText(8),             // source_url
+      stmt.getInt(9) != 0,         // is_deleted
+      stmt.getText(10),            // cover_path
+      stmt.getText(11),            // file_path
+      stmt.getText(12),            // file_hash
+      stmt.getDouble(13),          // size_mb
+      stmt.getText(14),            // created_at
+      stmt.getText(15)             // updated_at
   };
 }
 
@@ -49,13 +50,14 @@ int RepositoryDao::insertMod(const ModRow& row) {
       category_id,
       note,
       published_at,
-      source,
+      source_platform,
+      source_url,
       is_deleted,
       cover_path,
       file_path,
       file_hash,
       size_mb
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
   )SQL");
 
   stmt.bind(1, row.name);
@@ -64,12 +66,13 @@ int RepositoryDao::insertMod(const ModRow& row) {
   bindOptionalInt(stmt, 4, row.category_id);
   bindOptionalText(stmt, 5, row.note);
   bindOptionalText(stmt, 6, row.published_at);
-  bindOptionalText(stmt, 7, row.source);
-  stmt.bind(8, row.is_deleted ? 1 : 0);
-  bindOptionalText(stmt, 9, row.cover_path);
-  bindOptionalText(stmt, 10, row.file_path);
-  bindOptionalText(stmt, 11, row.file_hash);
-  stmt.bind(12, row.size_mb);
+      bindOptionalText(stmt, 7, row.source_platform);
+  bindOptionalText(stmt, 8, row.source_url);
+  stmt.bind(9, row.is_deleted ? 1 : 0);
+  bindOptionalText(stmt, 10, row.cover_path);
+  bindOptionalText(stmt, 11, row.file_path);
+  bindOptionalText(stmt, 12, row.file_hash);
+  stmt.bind(13, row.size_mb);
   stmt.step();
   return static_cast<int>(sqlite3_last_insert_rowid(db_->raw()));
 }
@@ -83,7 +86,8 @@ void RepositoryDao::updateMod(const ModRow& row) {
       category_id = ?,
       note = ?,
       published_at = ?,
-      source = ?,
+      source_platform = ?,
+      source_url = ?,
       cover_path = ?,
       file_path = ?,
       file_hash = ?,
@@ -98,12 +102,13 @@ void RepositoryDao::updateMod(const ModRow& row) {
   bindOptionalInt(stmt, 4, row.category_id);
   bindOptionalText(stmt, 5, row.note);
   bindOptionalText(stmt, 6, row.published_at);
-  bindOptionalText(stmt, 7, row.source);
-  bindOptionalText(stmt, 8, row.cover_path);
-  bindOptionalText(stmt, 9, row.file_path);
-  bindOptionalText(stmt, 10, row.file_hash);
-  stmt.bind(11, row.size_mb);
-  stmt.bind(12, row.id);
+  bindOptionalText(stmt, 7, row.source_platform);
+  bindOptionalText(stmt, 8, row.source_url);
+  bindOptionalText(stmt, 9, row.cover_path);
+  bindOptionalText(stmt, 10, row.file_path);
+  bindOptionalText(stmt, 11, row.file_hash);
+  stmt.bind(12, row.size_mb);
+  stmt.bind(13, row.id);
   stmt.step();
 }
 
@@ -124,7 +129,8 @@ std::optional<ModRow> RepositoryDao::findById(int id) const {
       COALESCE(category_id, 0),
       COALESCE(note, ''),
       COALESCE(published_at, ''),
-      COALESCE(source, ''),
+      COALESCE(source_platform, ''),
+      COALESCE(source_url, ''),
       is_deleted,
       COALESCE(cover_path, ''),
       COALESCE(file_path, ''),
@@ -152,7 +158,8 @@ std::vector<ModRow> RepositoryDao::listVisible() const {
       COALESCE(category_id, 0),
       COALESCE(note, ''),
       COALESCE(published_at, ''),
-      COALESCE(source, ''),
+      COALESCE(source_platform, ''),
+      COALESCE(source_url, ''),
       is_deleted,
       COALESCE(cover_path, ''),
       COALESCE(file_path, ''),

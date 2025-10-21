@@ -18,29 +18,27 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSet>
+#include <QSignalBlocker>
 #include <QStringList>
 #include <QTreeWidget>
+#include <QUrl>
 #include <QVBoxLayout>
 
 namespace {
 
-inline QString zh(const char* utf8) {
-  return QString::fromUtf8(utf8);
+QString trimmed(const QString& text) {
+  return text.trimmed();
 }
 
 QString joinTagDescriptor(const TagDescriptor& desc) {
   return QString::fromStdString(desc.group) + u":" + QString::fromStdString(desc.tag);
 }
 
-QString trimmedCopy(const QString& text) {
-  return text.trimmed();
-}
-
 } // namespace
 
 ModEditorDialog::ModEditorDialog(RepositoryService& service, QWidget* parent)
     : QDialog(parent), service_(service) {
-  setWindowTitle(zh("导入 / 编辑 MOD"));
+  setWindowTitle(tr("Import / Edit MOD"));
   resize(540, 680);
   buildUi();
   loadCategories();
@@ -57,8 +55,8 @@ void ModEditorDialog::buildUi() {
   auto* categoryRow = new QHBoxLayout();
   categoryCombo_ = new QComboBox(this);
   categoryCombo_->setEditable(false);
-  addCategoryBtn_ = new QPushButton(zh("新建"), this);
-  addCategoryBtn_->setToolTip(zh("新建分类"));
+  addCategoryBtn_ = new QPushButton(tr("New"), this);
+  addCategoryBtn_->setToolTip(tr("New Category"));
   categoryRow->addWidget(categoryCombo_, 1);
   categoryRow->addWidget(addCategoryBtn_);
   auto* categoryWrapper = new QWidget(this);
@@ -67,7 +65,7 @@ void ModEditorDialog::buildUi() {
   ratingSpin_ = new QSpinBox(this);
   ratingSpin_->setRange(0, 5);
   ratingSpin_->setSingleStep(1);
-  ratingSpin_->setSpecialValueText(zh("未评分"));
+  ratingSpin_->setSpecialValueText(tr("Unrated"));
 
   sizeSpin_ = new QDoubleSpinBox(this);
   sizeSpin_->setRange(0.0, 8192.0);
@@ -79,18 +77,22 @@ void ModEditorDialog::buildUi() {
   publishedEdit_ = new QLineEdit(this);
   publishedEdit_->setPlaceholderText("YYYY-MM-DD");
 
-  sourceEdit_ = new QLineEdit(this);
+  sourcePlatformEdit_ = new QLineEdit(this);
+  sourcePlatformEdit_->setPlaceholderText(tr("Platform"));
+  sourceUrlEdit_ = new QLineEdit(this);
+  sourceUrlEdit_->setPlaceholderText("https://...");
+
   filePathEdit_ = new QLineEdit(this);
-  browseFileBtn_ = new QPushButton(zh("浏览…"), this);
+  browseFileBtn_ = new QPushButton(tr("Browse..."), this);
 
   coverPathEdit_ = new QLineEdit(this);
-  browseCoverBtn_ = new QPushButton(zh("浏览…"), this);
+  browseCoverBtn_ = new QPushButton(tr("Browse..."), this);
 
   hashEdit_ = new QLineEdit(this);
   hashEdit_->setReadOnly(true);
 
   noteEdit_ = new QPlainTextEdit(this);
-  noteEdit_->setPlaceholderText(zh("备注、使用说明等…"));
+  noteEdit_->setPlaceholderText(tr("Notes / instructions..."));
 
   auto* fileRow = new QHBoxLayout();
   fileRow->addWidget(filePathEdit_, 1);
@@ -104,23 +106,24 @@ void ModEditorDialog::buildUi() {
   auto* coverWrapper = new QWidget(this);
   coverWrapper->setLayout(coverRow);
 
-  form->addRow(zh("名称*"), nameEdit_);
-  form->addRow(zh("作者"), authorEdit_);
-  form->addRow(zh("分类"), categoryWrapper);
-  form->addRow(zh("评分"), ratingSpin_);
-  form->addRow(zh("体积"), sizeSpin_);
-  form->addRow(zh("发布日期"), publishedEdit_);
-  form->addRow(zh("来源"), sourceEdit_);
-  form->addRow(zh("文件路径"), fileWrapper);
-  form->addRow(zh("封面"), coverWrapper);
-  form->addRow(zh("文件哈希"), hashEdit_);
+  form->addRow(tr("Name*"), nameEdit_);
+  form->addRow(tr("Author"), authorEdit_);
+  form->addRow(tr("Category"), categoryWrapper);
+  form->addRow(tr("Rating"), ratingSpin_);
+  form->addRow(tr("Size"), sizeSpin_);
+  form->addRow(tr("Published"), publishedEdit_);
+  form->addRow(tr("Platform"), sourcePlatformEdit_);
+  form->addRow("URL", sourceUrlEdit_);
+  form->addRow(tr("File Path"), fileWrapper);
+  form->addRow(tr("Cover"), coverWrapper);
+  form->addRow(tr("File Hash"), hashEdit_);
   layout->addLayout(form);
 
   auto* tagLabel = new QLabel("TAG", this);
   layout->addWidget(tagLabel);
 
   tagTree_ = new QTreeWidget(this);
-  tagTree_->setHeaderLabels({zh("标签组"), zh("标签")});
+  tagTree_->setHeaderLabels({tr("Group"), tr("Tag")});
   tagTree_->setColumnCount(2);
   tagTree_->setRootIsDecorated(true);
   layout->addWidget(tagTree_, 1);
@@ -129,8 +132,8 @@ void ModEditorDialog::buildUi() {
   tagGroupCombo_ = new QComboBox(this);
   tagGroupCombo_->setEditable(true);
   newTagEdit_ = new QLineEdit(this);
-  newTagEdit_->setPlaceholderText(zh("标签名称"));
-  addTagBtn_ = new QPushButton(zh("添加标签"), this);
+  newTagEdit_->setPlaceholderText(tr("Tag name"));
+  addTagBtn_ = new QPushButton(tr("Add Tag"), this);
   tagInputRow->addWidget(tagGroupCombo_, 1);
   tagInputRow->addWidget(newTagEdit_, 1);
   tagInputRow->addWidget(addTagBtn_);
@@ -138,7 +141,7 @@ void ModEditorDialog::buildUi() {
   tagInputWrapper->setLayout(tagInputRow);
   layout->addWidget(tagInputWrapper);
 
-  auto* noteLabel = new QLabel(zh("备注"), this);
+  auto* noteLabel = new QLabel(tr("Notes"), this);
   layout->addWidget(noteLabel);
   layout->addWidget(noteEdit_, 1);
 
@@ -152,11 +155,13 @@ void ModEditorDialog::buildUi() {
   connect(addCategoryBtn_, &QPushButton::clicked, this, &ModEditorDialog::onAddCategory);
   connect(addTagBtn_, &QPushButton::clicked, this, &ModEditorDialog::onAddTag);
   connect(filePathEdit_, &QLineEdit::textChanged, this, &ModEditorDialog::onFilePathEdited);
+  connect(sourceUrlEdit_, &QLineEdit::textChanged, this, &ModEditorDialog::onSourceUrlEdited);
+  connect(sourcePlatformEdit_, &QLineEdit::textEdited, this, &ModEditorDialog::onSourcePlatformEdited);
 }
 
 void ModEditorDialog::loadCategories() {
   categoryCombo_->clear();
-  categoryCombo_->addItem(zh("未分类"), 0);
+  categoryCombo_->addItem(tr("Uncategorized"), 0);
   categories_ = service_.listCategories();
   for (const auto& row : categories_) {
     categoryCombo_->addItem(QString::fromStdString(row.name), row.id);
@@ -203,9 +208,21 @@ void ModEditorDialog::setMod(const ModRow& mod, const std::vector<TagDescriptor>
   ratingSpin_->setValue(mod.rating);
   sizeSpin_->setValue(mod.size_mb);
   publishedEdit_->setText(QString::fromStdString(mod.published_at));
-  sourceEdit_->setText(QString::fromStdString(mod.source));
   noteEdit_->setPlainText(QString::fromStdString(mod.note));
   hashEdit_->setText(QString::fromStdString(mod.file_hash));
+
+  {
+    QSignalBlocker blockerPlatform(sourcePlatformEdit_);
+    QSignalBlocker blockerUrl(sourceUrlEdit_);
+    sourcePlatformEdit_->setText(QString::fromStdString(mod.source_platform));
+    sourceUrlEdit_->setText(QString::fromStdString(mod.source_url));
+  }
+
+  platformEditedManually_ = !mod.source_platform.empty();
+  lastAutoPlatform_.clear();
+  if (!platformEditedManually_) {
+    maybeAutoFillPlatform(sourceUrlEdit_->text());
+  }
 
   int index = categoryCombo_->findData(mod.category_id);
   if (index >= 0) {
@@ -241,16 +258,17 @@ void ModEditorDialog::setCheckedTags(const std::vector<TagDescriptor>& tags) {
 ModRow ModEditorDialog::modData() const {
   ModRow mod;
   mod.id = modId_;
-  mod.name = trimmedCopy(nameEdit_->text()).toStdString();
-  mod.author = trimmedCopy(authorEdit_->text()).toStdString();
+  mod.name = trimmed(nameEdit_->text()).toStdString();
+  mod.author = trimmed(authorEdit_->text()).toStdString();
   mod.rating = ratingSpin_->value();
   mod.category_id = categoryCombo_->currentData().toInt();
   mod.note = noteEdit_->toPlainText().trimmed().toStdString();
-  mod.published_at = trimmedCopy(publishedEdit_->text()).toStdString();
-  mod.source = trimmedCopy(sourceEdit_->text()).toStdString();
-  mod.cover_path = trimmedCopy(coverPathEdit_->text()).toStdString();
-  mod.file_path = trimmedCopy(filePathEdit_->text()).toStdString();
-  mod.file_hash = trimmedCopy(hashEdit_->text()).toStdString();
+  mod.published_at = trimmed(publishedEdit_->text()).toStdString();
+  mod.source_platform = trimmed(sourcePlatformEdit_->text()).toStdString();
+  mod.source_url = trimmed(sourceUrlEdit_->text()).toStdString();
+  mod.cover_path = trimmed(coverPathEdit_->text()).toStdString();
+  mod.file_path = trimmed(filePathEdit_->text()).toStdString();
+  mod.file_hash = trimmed(hashEdit_->text()).toStdString();
   mod.size_mb = sizeSpin_->value();
   return mod;
 }
@@ -272,19 +290,19 @@ std::vector<TagDescriptor> ModEditorDialog::selectedTags() const {
 }
 
 void ModEditorDialog::accept() {
-  if (trimmedCopy(nameEdit_->text()).isEmpty()) {
-    QMessageBox::warning(this, zh("缺少名称"), zh("请填写 MOD 名称。"));
+  if (trimmed(nameEdit_->text()).isEmpty()) {
+    QMessageBox::warning(this, tr("Missing name"), tr("Please enter a MOD name."));
     return;
   }
-  if (trimmedCopy(filePathEdit_->text()).isEmpty()) {
-    QMessageBox::warning(this, zh("缺少文件"), zh("请选择 MOD 文件。"));
+  if (trimmed(filePathEdit_->text()).isEmpty()) {
+    QMessageBox::warning(this, tr("Missing file"), tr("Please choose a MOD file."));
     return;
   }
   QDialog::accept();
 }
 
 void ModEditorDialog::onBrowseFile() {
-  const QString path = QFileDialog::getOpenFileName(this, zh("选择文件"));
+  const QString path = QFileDialog::getOpenFileName(this, tr("Select File"));
   if (!path.isEmpty()) {
     filePathEdit_->setText(path);
     applyFileMetadata(path);
@@ -293,7 +311,7 @@ void ModEditorDialog::onBrowseFile() {
 
 void ModEditorDialog::onBrowseCover() {
   const QString path = QFileDialog::getOpenFileName(
-      this, zh("选择封面图片"), QString(), "Images (*.png *.jpg *.jpeg *.bmp *.webp);;All Files (*)");
+      this, tr("Select Cover Image"), QString(), "Images (*.png *.jpg *.jpeg *.bmp *.webp);;All Files (*)");
   if (!path.isEmpty()) {
     coverPathEdit_->setText(path);
   }
@@ -302,7 +320,7 @@ void ModEditorDialog::onBrowseCover() {
 void ModEditorDialog::onAddCategory() {
   bool ok = false;
   QString name =
-      QInputDialog::getText(this, zh("新建分类"), zh("分类名称："), QLineEdit::Normal, QString(), &ok).trimmed();
+      QInputDialog::getText(this, tr("New Category"), tr("Category name:"), QLineEdit::Normal, QString(), &ok).trimmed();
   if (!ok || name.isEmpty()) {
     return;
   }
@@ -315,8 +333,8 @@ void ModEditorDialog::onAddCategory() {
 }
 
 void ModEditorDialog::onAddTag() {
-  const QString groupName = trimmedCopy(tagGroupCombo_->currentText());
-  const QString tagName = trimmedCopy(newTagEdit_->text());
+  const QString groupName = trimmed(tagGroupCombo_->currentText());
+  const QString tagName = trimmed(newTagEdit_->text());
   if (groupName.isEmpty() || tagName.isEmpty()) {
     return;
   }
@@ -368,6 +386,21 @@ void ModEditorDialog::onFilePathEdited(const QString& path) {
   applyFileMetadata(path);
 }
 
+void ModEditorDialog::onSourceUrlEdited(const QString& url) {
+  maybeAutoFillPlatform(url);
+}
+
+void ModEditorDialog::onSourcePlatformEdited(const QString& text) {
+  const QString value = trimmed(text);
+  if (value.isEmpty()) {
+    platformEditedManually_ = false;
+    lastAutoPlatform_.clear();
+  } else {
+    platformEditedManually_ = true;
+    lastAutoPlatform_.clear();
+  }
+}
+
 void ModEditorDialog::applyFileMetadata(const QString& path) {
   QFileInfo info(path);
   if (!info.exists() || !info.isFile()) {
@@ -399,15 +432,67 @@ void ModEditorDialog::applyFileMetadata(const QString& path) {
   }
 }
 
-QString ModEditorDialog::locateCoverSibling(const QFileInfo& fileInfo) const {
-  static const QStringList extensions = {".png", ".jpg", ".jpeg", ".bmp", ".webp"};
-  const QDir dir = fileInfo.dir();
-  const QString base = fileInfo.completeBaseName();
-  for (const QString& ext : extensions) {
-    const QString candidate = dir.absoluteFilePath(base + ext);
-    if (QFileInfo::exists(candidate)) {
-      return candidate;
+namespace {
+QString normalizeName(const QString& text) {
+  QString normalized;
+  normalized.reserve(text.size());
+  for (const QChar& ch : text) {
+    if (ch.isLetterOrNumber()) {
+      normalized.append(ch.toLower());
     }
   }
+  return normalized;
+}
+} // namespace
+
+QString ModEditorDialog::locateCoverSibling(const QFileInfo& fileInfo) const {
+  static const QStringList filters = {"*.png", "*.jpg", "*.jpeg", "*.bmp", "*.webp"};
+
+  const QDir dir = fileInfo.dir();
+  const QString base = fileInfo.completeBaseName();
+  const QString modName = trimmed(nameEdit_->text());
+
+  const QString normalizedBase = normalizeName(base);
+  const QString normalizedModName = normalizeName(modName);
+
+  QFileInfoList images = dir.entryInfoList(filters, QDir::Files | QDir::Readable);
+
+  // Prefer exact base-name matches first.
+  for (const QFileInfo& image : images) {
+    if (normalizeName(image.completeBaseName()) == normalizedBase && !normalizedBase.isEmpty()) {
+      return image.absoluteFilePath();
+    }
+  }
+
+  // Fallback: any image whose name contains the MOD name token.
+  if (!normalizedModName.isEmpty()) {
+    for (const QFileInfo& image : images) {
+      if (normalizeName(image.completeBaseName()).contains(normalizedModName)) {
+        return image.absoluteFilePath();
+      }
+    }
+  }
+
   return {};
+}
+
+void ModEditorDialog::maybeAutoFillPlatform(const QString& url) {
+  const QString trimmedUrl = trimmed(url);
+  if (trimmedUrl.isEmpty()) {
+    return;
+  }
+
+  QUrl parsed = QUrl::fromUserInput(trimmedUrl);
+  const QString host = parsed.host().toLower();
+  if (host.isEmpty()) {
+    return;
+  }
+
+  const QString current = trimmed(sourcePlatformEdit_->text());
+  if (!platformEditedManually_ || current.isEmpty() || current == lastAutoPlatform_) {
+    QSignalBlocker blocker(sourcePlatformEdit_);
+    sourcePlatformEdit_->setText(host);
+    lastAutoPlatform_ = host;
+    platformEditedManually_ = false;
+  }
 }

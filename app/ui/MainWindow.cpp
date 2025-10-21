@@ -1,4 +1,4 @@
-#include "app/ui/MainWindow.h"
+﻿#include "app/ui/MainWindow.h"
 
 #include <algorithm>
 
@@ -79,7 +79,7 @@ void MainWindow::setupUi() {
 
   setCentralWidget(central);
   resize(1280, 760);
-  setWindowTitle("L4D2 MOD 管理器");
+  setWindowTitle("L4D2 Mod Assistant");
 }
 
 QWidget* MainWindow::buildNavigationBar() {
@@ -88,9 +88,9 @@ QWidget* MainWindow::buildNavigationBar() {
   layout->setContentsMargins(0, 0, 0, 0);
   layout->setSpacing(8);
 
-  repoButton_ = new QPushButton(tr("仓库"), bar);
-  selectorButton_ = new QPushButton(tr("选择器"), bar);
-  settingsButton_ = new QPushButton(tr("设置"), bar);
+  repoButton_ = new QPushButton(tr("Repository"), bar);
+  selectorButton_ = new QPushButton(tr("Selector"), bar);
+  settingsButton_ = new QPushButton(tr("Settings"), bar);
 
   layout->addWidget(repoButton_);
   layout->addWidget(selectorButton_);
@@ -113,9 +113,9 @@ QWidget* MainWindow::buildRepositoryPage() {
 
   auto* filterRow = new QHBoxLayout();
   searchEdit_ = new QLineEdit(page);
-  searchEdit_->setPlaceholderText(tr("搜索名称 / 来源 / 备注"));
+  searchEdit_->setPlaceholderText(tr("Search name / platform / notes"));
   categoryFilter_ = new QComboBox(page);
-  importBtn_ = new QPushButton(tr("导入"), page);
+  importBtn_ = new QPushButton(tr("Import"), page);
   filterRow->addWidget(searchEdit_, 2);
   filterRow->addWidget(categoryFilter_, 1);
   filterRow->addStretch(1);
@@ -124,16 +124,16 @@ QWidget* MainWindow::buildRepositoryPage() {
 
   auto* splitter = new QSplitter(Qt::Horizontal, page);
 
-  // Left side: table and actions
   auto* leftPanel = new QWidget(splitter);
   auto* leftLayout = new QVBoxLayout(leftPanel);
   leftLayout->setContentsMargins(0, 0, 0, 0);
   leftLayout->setSpacing(8);
 
   modTable_ = new QTableWidget(leftPanel);
-  modTable_->setColumnCount(8);
+  modTable_->setColumnCount(9);
   modTable_->setHorizontalHeaderLabels(
-      {tr("名称"), tr("分类"), tr("TAG"), tr("作者"), tr("评分"), tr("发布日期"), tr("来源"), tr("备注")});
+      {tr("Name"), tr("Category"), tr("TAG"), tr("Author"), tr("Rating"), tr("Published"), tr("Platform"), tr("URL"),
+       tr("Notes")});
   modTable_->horizontalHeader()->setStretchLastSection(true);
   modTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
   modTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -141,13 +141,21 @@ QWidget* MainWindow::buildRepositoryPage() {
   modTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
   modTable_->setAlternatingRowColors(true);
   modTable_->verticalHeader()->setVisible(false);
+  modTable_->setStyleSheet(
+      "QTableWidget::item:selected {"
+      " background-color: #D6EBFF;"
+      " color: #1f3556;"
+      " }"
+      "QTableWidget::item:selected:!active {"
+      " background-color: #E6F3FF;"
+      " }");
 
   leftLayout->addWidget(modTable_, 1);
 
   auto* actionRow = new QHBoxLayout();
-  editBtn_ = new QPushButton(tr("编辑"), leftPanel);
-  deleteBtn_ = new QPushButton(tr("删除"), leftPanel);
-  refreshBtn_ = new QPushButton(tr("刷新"), leftPanel);
+  editBtn_ = new QPushButton(tr("Edit"), leftPanel);
+  deleteBtn_ = new QPushButton(tr("Delete"), leftPanel);
+  refreshBtn_ = new QPushButton(tr("Refresh"), leftPanel);
   actionRow->addWidget(editBtn_);
   actionRow->addWidget(deleteBtn_);
   actionRow->addStretch();
@@ -156,13 +164,12 @@ QWidget* MainWindow::buildRepositoryPage() {
 
   leftPanel->setLayout(leftLayout);
 
-  // Right side: details
   auto* rightPanel = new QWidget(splitter);
   auto* rightLayout = new QVBoxLayout(rightPanel);
   rightLayout->setContentsMargins(0, 0, 0, 0);
   rightLayout->setSpacing(12);
 
-  coverLabel_ = new QLabel(tr("选中的 MOD 的图片"), rightPanel);
+  coverLabel_ = new QLabel(tr("Selected MOD image"), rightPanel);
   coverLabel_->setAlignment(Qt::AlignCenter);
   coverLabel_->setMinimumSize(280, 240);
   coverLabel_->setStyleSheet("QLabel { background: #1f5f7f; color: white; border-radius: 6px; }");
@@ -172,7 +179,7 @@ QWidget* MainWindow::buildRepositoryPage() {
 
   noteView_ = new QTextEdit(rightPanel);
   noteView_->setReadOnly(true);
-  noteView_->setPlaceholderText(tr("选中的 MOD 的完整备注"));
+  noteView_->setPlaceholderText(tr("Selected MOD notes"));
 
   rightLayout->addWidget(coverLabel_);
   rightLayout->addWidget(metaLabel_);
@@ -200,18 +207,18 @@ QWidget* MainWindow::buildRepositoryPage() {
 QWidget* MainWindow::buildSelectorPage() {
   auto* page = new QWidget(this);
   auto* layout = new QVBoxLayout(page);
-  layout->addStretch();
-  layout->addWidget(new QLabel(tr("选择器功能开发中"), page), 0, Qt::AlignCenter);
-  layout->addStretch();
+  auto* label = new QLabel(tr("Selector placeholder"), page);
+  label->setAlignment(Qt::AlignCenter);
+  layout->addWidget(label, 1);
   return page;
 }
 
 QWidget* MainWindow::buildSettingsPage() {
   auto* page = new QWidget(this);
   auto* layout = new QVBoxLayout(page);
-  layout->addStretch();
-  layout->addWidget(new QLabel(tr("设置功能开发中"), page), 0, Qt::AlignCenter);
-  layout->addStretch();
+  auto* label = new QLabel(tr("Settings placeholder"), page);
+  label->setAlignment(Qt::AlignCenter);
+  layout->addWidget(label, 1);
   return page;
 }
 
@@ -219,11 +226,7 @@ void MainWindow::reloadCategories() {
   categoryNames_.clear();
   categoryFilter_->blockSignals(true);
   categoryFilter_->clear();
-  categoryFilter_->addItem(tr("全部分类"), 0);
-  if (!repo_) {
-    categoryFilter_->blockSignals(false);
-    return;
-  }
+  categoryFilter_->addItem(tr("All categories"), 0);
   const auto categories = repo_->listCategories();
   for (const auto& category : categories) {
     categoryNames_[category.id] = QString::fromStdString(category.name);
@@ -233,7 +236,6 @@ void MainWindow::reloadCategories() {
 }
 
 void MainWindow::loadData() {
-  if (!repo_) return;
   mods_ = repo_->listVisible();
   modTagsText_.clear();
   for (const auto& mod : mods_) {
@@ -255,12 +257,14 @@ void MainWindow::populateTable() {
 
     const QString name = QString::fromStdString(mod.name);
     const QString author = toDisplay(mod.author);
-    const QString source = toDisplay(mod.source);
+    const QString platform = toDisplay(mod.source_platform);
+    const QString url = toDisplay(mod.source_url);
     const QString note = toDisplay(mod.note);
     const QString tags = modTagsText_[mod.id];
 
     if (!keyword.isEmpty()) {
-      const QString haystack = name + u' ' + author + u' ' + source + u' ' + note + u' ' + tags;
+      const QString haystack =
+          name + u' ' + author + u' ' + platform + u' ' + url + u' ' + note + u' ' + tags;
       if (!haystack.contains(keyword, Qt::CaseInsensitive)) {
         continue;
       }
@@ -275,8 +279,9 @@ void MainWindow::populateTable() {
     modTable_->setItem(row, 3, new QTableWidgetItem(author));
     modTable_->setItem(row, 4, new QTableWidgetItem(mod.rating > 0 ? QString::number(mod.rating) : QString("-")));
     modTable_->setItem(row, 5, new QTableWidgetItem(toDisplay(mod.published_at, tr("-"))));
-    modTable_->setItem(row, 6, new QTableWidgetItem(source));
-    modTable_->setItem(row, 7, new QTableWidgetItem(note));
+    modTable_->setItem(row, 6, new QTableWidgetItem(platform));
+    modTable_->setItem(row, 7, new QTableWidgetItem(url));
+    modTable_->setItem(row, 8, new QTableWidgetItem(note));
     ++row;
   }
 
@@ -291,7 +296,7 @@ void MainWindow::updateDetailForMod(int modId) {
   const auto it = std::find_if(mods_.begin(), mods_.end(), [modId](const ModRow& row) { return row.id == modId; });
   if (it == mods_.end()) {
     coverLabel_->setPixmap(QPixmap());
-    coverLabel_->setText(tr("选中的 MOD 的图片"));
+    coverLabel_->setText(tr("Selected MOD image"));
     metaLabel_->clear();
     noteView_->clear();
     return;
@@ -301,7 +306,6 @@ void MainWindow::updateDetailForMod(int modId) {
   const QString categoryName = categoryNameFor(mod.category_id);
   const QString tags = modTagsText_[mod.id];
 
-  // Cover rendering
   coverLabel_->setText(QString());
   QPixmap pix;
   auto tryLoad = [&](const QString& path) -> bool {
@@ -322,24 +326,25 @@ void MainWindow::updateDetailForMod(int modId) {
   };
   if (!tryLoad(QString::fromStdString(mod.cover_path))) {
     coverLabel_->setPixmap(QPixmap());
-    coverLabel_->setText(tr("暂无封面"));
+    coverLabel_->setText(tr("No cover"));
   }
 
   noteView_->setPlainText(QString::fromStdString(mod.note));
 
   QStringList meta;
-  meta << tr("名称: %1").arg(QString::fromStdString(mod.name));
-  meta << tr("分类: %1").arg(categoryName.isEmpty() ? tr("未分类") : categoryName);
-  meta << tr("TAG: %1").arg(tags.isEmpty() ? tr("无") : tags);
-  meta << tr("作者: %1").arg(toDisplay(mod.author, tr("未知")));
-  meta << tr("评分: %1").arg(mod.rating > 0 ? QString::number(mod.rating) : tr("未评分"));
-  meta << tr("体积: %1 MB").arg(QString::number(mod.size_mb, 'f', 2));
-  if (!mod.published_at.empty()) meta << tr("发布日期: %1").arg(QString::fromStdString(mod.published_at));
-  if (!mod.source.empty()) meta << tr("来源: %1").arg(QString::fromStdString(mod.source));
-  if (!mod.file_path.empty()) meta << tr("文件: %1").arg(QString::fromStdString(mod.file_path));
-  if (!mod.file_hash.empty()) meta << tr("哈希: %1").arg(QString::fromStdString(mod.file_hash));
-  meta << tr("创建时间: %1").arg(QString::fromStdString(mod.created_at));
-  meta << tr("更新时间: %1").arg(QString::fromStdString(mod.updated_at));
+  meta << tr("Name: %1").arg(QString::fromStdString(mod.name));
+  meta << tr("Category: %1").arg(categoryName.isEmpty() ? tr("Uncategorized") : categoryName);
+  meta << tr("TAG: %1").arg(tags.isEmpty() ? tr("None") : tags);
+  meta << tr("Author: %1").arg(toDisplay(mod.author, tr("Unknown")));
+  meta << tr("Rating: %1").arg(mod.rating > 0 ? QString::number(mod.rating) : tr("Unrated"));
+  meta << tr("Size: %1 MB").arg(QString::number(mod.size_mb, 'f', 2));
+  if (!mod.published_at.empty()) meta << tr("Published: %1").arg(QString::fromStdString(mod.published_at));
+  if (!mod.source_platform.empty()) meta << tr("Platform: %1").arg(QString::fromStdString(mod.source_platform));
+  if (!mod.source_url.empty()) meta << tr("URL: %1").arg(QString::fromStdString(mod.source_url));
+  if (!mod.file_path.empty()) meta << tr("File: %1").arg(QString::fromStdString(mod.file_path));
+  if (!mod.file_hash.empty()) meta << tr("Hash: %1").arg(QString::fromStdString(mod.file_hash));
+  meta << tr("Created: %1").arg(QString::fromStdString(mod.created_at));
+  meta << tr("Updated: %1").arg(QString::fromStdString(mod.updated_at));
   metaLabel_->setText(meta.join('\n'));
 }
 
@@ -349,9 +354,9 @@ QString MainWindow::categoryNameFor(int categoryId) const {
     if (it != categoryNames_.end()) {
       return it->second;
     }
-    return QStringLiteral("分类#%1").arg(categoryId);
+    return QStringLiteral("Category#%1").arg(categoryId);
   }
-  return tr("未分类");
+  return tr("Uncategorized");
 }
 
 QString MainWindow::tagsTextForMod(int modId) {
@@ -386,13 +391,13 @@ void MainWindow::onImport() {
 void MainWindow::onEdit() {
   auto* item = modTable_->currentItem();
   if (!item) {
-    QMessageBox::information(this, tr("未选择"), tr("请先选择一个 MOD。"));
+    QMessageBox::information(this, tr("No selection"), tr("Please select a MOD first."));
     return;
   }
   const int modId = modTable_->item(modTable_->currentRow(), 0)->data(Qt::UserRole).toInt();
   auto mod = repo_->findMod(modId);
   if (!mod) {
-    QMessageBox::warning(this, tr("未找到"), tr("数据库中不存在该 MOD。"));
+    QMessageBox::warning(this, tr("Missing"), tr("The MOD record no longer exists."));
     return;
   }
 
@@ -414,7 +419,7 @@ void MainWindow::onDelete() {
   const int modId = modTable_->item(modTable_->currentRow(), 0)->data(Qt::UserRole).toInt();
 
   const auto reply =
-      QMessageBox::question(this, tr("确认删除"), tr("确认要在仓库中隐藏该 MOD 吗？"), QMessageBox::Yes | QMessageBox::No);
+      QMessageBox::question(this, tr("Hide MOD"), tr("Hide this MOD from the repository?"), QMessageBox::Yes | QMessageBox::No);
   if (reply != QMessageBox::Yes) return;
 
   repo_->setModDeleted(modId, true);

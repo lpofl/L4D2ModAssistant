@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QString>
 #include <memory>
 #include <vector>
 
@@ -44,6 +45,8 @@ private slots:
   void onAddCategory();
   void onAddTag();
   void onFilePathEdited(const QString& path);
+  void onSourceUrlEdited(const QString& url);
+  void onSourcePlatformEdited(const QString& text);
 
 private:
   void buildUi();
@@ -53,10 +56,13 @@ private:
   QTreeWidgetItem* ensureGroupItem(const QString& groupName);
   void applyFileMetadata(const QString& path);
   QString locateCoverSibling(const QFileInfo& fileInfo) const;
+  void maybeAutoFillPlatform(const QString& url);
 
   RepositoryService& service_;
   int modId_{0};
   bool suppressFileSignal_{false};
+  bool platformEditedManually_{false};
+  QString lastAutoPlatform_;
 
   QLineEdit* nameEdit_{};
   QLineEdit* authorEdit_{};
@@ -65,7 +71,8 @@ private:
   QSpinBox* ratingSpin_{};
   QDoubleSpinBox* sizeSpin_{};
   QLineEdit* publishedEdit_{};
-  QLineEdit* sourceEdit_{};
+  QLineEdit* sourcePlatformEdit_{};
+  QLineEdit* sourceUrlEdit_{};
   QLineEdit* filePathEdit_{};
   QPushButton* browseFileBtn_{};
   QLineEdit* coverPathEdit_{};
