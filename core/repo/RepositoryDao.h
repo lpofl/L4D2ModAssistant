@@ -51,6 +51,7 @@ public:
   void setDeleted(int id, bool deleted);
   /// Fetch row by primary key.
   std::optional<ModRow> findById(int id) const;
+  std::optional<ModRow> findByFileHash(const std::string& fileHash) const;
   /// List all visible (not deleted) mods.
   std::vector<ModRow> listVisible() const;
 

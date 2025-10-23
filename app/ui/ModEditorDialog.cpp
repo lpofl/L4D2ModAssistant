@@ -173,98 +173,146 @@ void ModEditorDialog::buildUi() {
   tagWrapperLayout->setContentsMargins(0, 0, 0, 0);
   auto* tagHeader = new QHBoxLayout();
   tagHeader->setContentsMargins(0, 0, 0, 0);
-  tagHeader->addStretch();
   manageTagsButton_ = new QPushButton(tr("新建标签"), tagWrapper);
   manageTagsButton_->setToolTip(tr("创建临时标签"));
   tagHeader->addWidget(manageTagsButton_);
+  tagHeader->addStretch();
+  addTagRowButton_ = new QPushButton(QStringLiteral("+"), tagWrapper);
+  addTagRowButton_->setFixedWidth(28);
+  addTagRowButton_->setToolTip(tr("添加标签行"));
+  tagHeader->addWidget(addTagRowButton_);
   tagWrapperLayout->addLayout(tagHeader);
   tagWrapperLayout->addWidget(tagRowsContainer_);
   form->addRow(tr("标签"), tagWrapper);
 
-  authorEdit_ = new QLineEdit(this);
-  authorEdit_->setPlaceholderText(tr("作者"));
-  ratingSpin_ = new QSpinBox(this);
-  ratingSpin_->setRange(0, 5);
-  ratingSpin_->setSingleStep(1);
-  ratingSpin_->setSpecialValueText(tr("未评分"));
-  ratingSpin_->setFixedWidth(80);
-  auto* authorRatingRow = new QWidget(this);
-  auto* authorRatingLayout = new QHBoxLayout(authorRatingRow);
-  authorRatingLayout->setContentsMargins(0, 0, 0, 0);
-  authorRatingLayout->setSpacing(8);
-  authorRatingLayout->addWidget(authorEdit_, 1);
-  auto* ratingLabel = new QLabel(tr("评分"), authorRatingRow);
-  ratingLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-  authorRatingLayout->addWidget(ratingLabel);
-  authorRatingLayout->addWidget(ratingSpin_, 0);
-  authorRatingLayout->addStretch();
-  form->addRow(tr("作者 / 评分"), authorRatingRow);
+  // ========== 作者 / 评分 ==========
+auto* authorLabel = new QLabel(tr("作者"), this);
+authorEdit_ = new QLineEdit(this);
+authorEdit_->setPlaceholderText(tr("输入作者"));
 
-  stabilityCombo_ = new QComboBox(this);
-  stabilityCombo_->addItem(tr("-"), QString());
-  sizeSpin_ = new QDoubleSpinBox(this);
-  sizeSpin_->setRange(0.0, 8192.0);
-  sizeSpin_->setDecimals(2);
-  sizeSpin_->setSuffix(tr(" MB"));
-  sizeSpin_->setReadOnly(true);
-  sizeSpin_->setButtonSymbols(QAbstractSpinBox::NoButtons);
-  auto* stabilitySizeRow = new QWidget(this);
-  auto* stabilitySizeLayout = new QHBoxLayout(stabilitySizeRow);
-  stabilitySizeLayout->setContentsMargins(0, 0, 0, 0);
-  stabilitySizeLayout->setSpacing(8);
-  stabilitySizeLayout->addWidget(stabilityCombo_, 1);
-  auto* sizeLabel = new QLabel(tr("大小"), stabilitySizeRow);
-  sizeLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-  stabilitySizeLayout->addWidget(sizeLabel);
-  stabilitySizeLayout->addWidget(sizeSpin_, 0);
-  stabilitySizeLayout->addStretch();
-  form->addRow(tr("稳定性 / 大小"), stabilitySizeRow);
+auto* ratingLabel = new QLabel(tr("评分"), this);
+ratingSpin_ = new QSpinBox(this);
+ratingSpin_->setRange(0, 5);
+ratingSpin_->setSingleStep(1);
+ratingSpin_->setSpecialValueText(tr("未评分"));
+ratingSpin_->setFixedWidth(80);
 
-  integrityCombo_ = new QComboBox(this);
-  integrityCombo_->addItem(tr("-"), QString());
-  acquisitionCombo_ = new QComboBox(this);
-  acquisitionCombo_->addItem(tr("-"), QString());
-  auto* integrityAcquisitionRow = new QWidget(this);
-  auto* integrityAcquisitionLayout = new QHBoxLayout(integrityAcquisitionRow);
-  integrityAcquisitionLayout->setContentsMargins(0, 0, 0, 0);
-  integrityAcquisitionLayout->setSpacing(8);
-  integrityAcquisitionLayout->addWidget(integrityCombo_, 1);
-  integrityAcquisitionLayout->addWidget(acquisitionCombo_, 1);
-  integrityAcquisitionLayout->addStretch();
-  form->addRow(tr("健全度 / 获取方式"), integrityAcquisitionRow);
+auto* authorRatingRow = new QWidget(this);
+auto* authorRatingLayout = new QHBoxLayout(authorRatingRow);
+authorRatingLayout->setContentsMargins(0, 0, 0, 0);
+authorRatingLayout->setSpacing(8);
 
-  sourcePlatformEdit_ = new QLineEdit(this);
-  sourcePlatformEdit_->setPlaceholderText(tr("发布平台"));
-  sourcePlatformEdit_->setMaximumWidth(160);
-  sourceUrlEdit_ = new QLineEdit(this);
-  sourceUrlEdit_->setPlaceholderText("https://...");
-  auto* platformUrlRow = new QWidget(this);
-  auto* platformUrlLayout = new QHBoxLayout(platformUrlRow);
-  platformUrlLayout->setContentsMargins(0, 0, 0, 0);
-  platformUrlLayout->setSpacing(8);
-  platformUrlLayout->addWidget(sourcePlatformEdit_, 0);
-  platformUrlLayout->addWidget(sourceUrlEdit_, 1);
-  platformUrlLayout->addStretch();
-  form->addRow(tr("发布平台 / URL"), platformUrlRow);
+authorRatingLayout->addWidget(authorLabel);
+authorRatingLayout->addWidget(authorEdit_, 1);
+authorRatingLayout->addWidget(ratingLabel);
+authorRatingLayout->addWidget(ratingSpin_);
+authorRatingLayout->addStretch();
 
-  lastPublishedEdit_ = new QLineEdit(this);
-  lastPublishedEdit_->setPlaceholderText("YYYY-MM-DD");
-  lastSavedEdit_ = new QLineEdit(this);
-  lastSavedEdit_->setPlaceholderText("YYYY-MM-DD");
-  statusCombo_ = new QComboBox(this);
-  statusCombo_->addItem(tr("最新"));
-  statusCombo_->addItem(tr("过时"));
-  statusCombo_->addItem(tr("待检查"));
-  statusCombo_->setMinimumWidth(140);
-  auto* timelineRow = new QWidget(this);
-  auto* timelineLayout = new QHBoxLayout(timelineRow);
-  timelineLayout->setContentsMargins(0, 0, 0, 0);
-  timelineLayout->setSpacing(8);
-  timelineLayout->addWidget(lastPublishedEdit_);
-  timelineLayout->addWidget(lastSavedEdit_);
-  timelineLayout->addWidget(statusCombo_);
-  timelineLayout->addStretch();
-  form->addRow(tr("最后发布日 / 最后保存日 / 版本状态"), timelineRow);
+form->addRow(authorRatingRow);
+
+
+// ========== 稳定性 / 大小 ==========
+auto* stabilityLabel = new QLabel(tr("稳定性"), this);
+stabilityCombo_ = new QComboBox(this);
+stabilityCombo_->addItem(tr("-"), QString());
+
+auto* sizeLabel = new QLabel(tr("大小"), this);
+sizeSpin_ = new QDoubleSpinBox(this);
+sizeSpin_->setRange(0.0, 8192.0);
+sizeSpin_->setDecimals(2);
+sizeSpin_->setSuffix(tr(" MB"));
+sizeSpin_->setReadOnly(true);
+sizeSpin_->setButtonSymbols(QAbstractSpinBox::NoButtons);
+
+auto* stabilitySizeRow = new QWidget(this);
+auto* stabilitySizeLayout = new QHBoxLayout(stabilitySizeRow);
+stabilitySizeLayout->setContentsMargins(0, 0, 0, 0);
+stabilitySizeLayout->setSpacing(8);
+
+stabilitySizeLayout->addWidget(stabilityLabel);
+stabilitySizeLayout->addWidget(stabilityCombo_, 1);
+stabilitySizeLayout->addWidget(sizeLabel);
+stabilitySizeLayout->addWidget(sizeSpin_);
+stabilitySizeLayout->addStretch();
+
+form->addRow(stabilitySizeRow);
+
+
+// ========== 健全度 / 获取方式 ==========
+auto* integrityLabel = new QLabel(tr("健全度"), this);
+integrityCombo_ = new QComboBox(this);
+integrityCombo_->addItem(tr("-"), QString());
+
+auto* acquisitionLabel = new QLabel(tr("获取方式"), this);
+acquisitionCombo_ = new QComboBox(this);
+acquisitionCombo_->addItem(tr("-"), QString());
+
+auto* integrityAcquisitionRow = new QWidget(this);
+auto* integrityAcquisitionLayout = new QHBoxLayout(integrityAcquisitionRow);
+integrityAcquisitionLayout->setContentsMargins(0, 0, 0, 0);
+integrityAcquisitionLayout->setSpacing(8);
+
+integrityAcquisitionLayout->addWidget(integrityLabel);
+integrityAcquisitionLayout->addWidget(integrityCombo_, 1);
+integrityAcquisitionLayout->addWidget(acquisitionLabel);
+integrityAcquisitionLayout->addWidget(acquisitionCombo_, 1);
+integrityAcquisitionLayout->addStretch();
+
+form->addRow(integrityAcquisitionRow);
+
+
+// ========== 发布平台 / URL ==========
+auto* platformLabel = new QLabel(tr("发布平台"), this);
+sourcePlatformEdit_ = new QLineEdit(this);
+sourcePlatformEdit_->setPlaceholderText(tr("平台名"));
+sourcePlatformEdit_->setMaximumWidth(160);
+
+auto* urlLabel = new QLabel(tr("URL"), this);
+sourceUrlEdit_ = new QLineEdit(this);
+sourceUrlEdit_->setPlaceholderText("https://...");
+
+auto* platformUrlRow = new QWidget(this);
+auto* platformUrlLayout = new QHBoxLayout(platformUrlRow);
+platformUrlLayout->setContentsMargins(0, 0, 0, 0);
+platformUrlLayout->setSpacing(8);
+
+platformUrlLayout->addWidget(platformLabel);
+platformUrlLayout->addWidget(sourcePlatformEdit_);
+platformUrlLayout->addWidget(urlLabel);
+platformUrlLayout->addWidget(sourceUrlEdit_, 1);
+platformUrlLayout->addStretch();
+
+form->addRow(platformUrlRow);
+
+
+// ========== 最后发布日 / 保存日 / 版本状态 ==========
+auto* lastPublishedLabel = new QLabel(tr("最后发布日"), this);
+lastPublishedEdit_ = new QLineEdit(this);
+lastPublishedEdit_->setPlaceholderText("YYYY-MM-DD");
+
+auto* lastSavedLabel = new QLabel(tr("最后保存日"), this);
+lastSavedEdit_ = new QLineEdit(this);
+lastSavedEdit_->setPlaceholderText("YYYY-MM-DD");
+
+auto* statusLabel = new QLabel(tr("版本状态"), this);
+statusCombo_ = new QComboBox(this);
+statusCombo_->addItems({ tr("最新"), tr("过时"), tr("待检查") });
+statusCombo_->setMinimumWidth(120);
+
+auto* timelineRow = new QWidget(this);
+auto* timelineLayout = new QHBoxLayout(timelineRow);
+timelineLayout->setContentsMargins(0, 0, 0, 0);
+timelineLayout->setSpacing(8);
+
+timelineLayout->addWidget(lastPublishedLabel);
+timelineLayout->addWidget(lastPublishedEdit_);
+timelineLayout->addWidget(lastSavedLabel);
+timelineLayout->addWidget(lastSavedEdit_);
+timelineLayout->addWidget(statusLabel);
+timelineLayout->addWidget(statusCombo_);
+timelineLayout->addStretch();
+
+form->addRow(timelineRow);
 
   relationRowsContainer_ = new QWidget(this);
   relationRowsLayout_ = new QVBoxLayout(relationRowsContainer_);
@@ -322,6 +370,7 @@ void ModEditorDialog::buildUi() {
   connect(sourceUrlEdit_, &QLineEdit::textChanged, this, &ModEditorDialog::onSourceUrlEdited);
   connect(sourcePlatformEdit_, &QLineEdit::textEdited, this, &ModEditorDialog::onSourcePlatformEdited);
   connect(manageTagsButton_, &QPushButton::clicked, this, &ModEditorDialog::onAddTag);
+  connect(addTagRowButton_, &QPushButton::clicked, this, &ModEditorDialog::onAddTagRowClicked);
 
   addTagRow();
   addRelationRow();
@@ -419,6 +468,195 @@ void ModEditorDialog::loadTags() {
   loadRelationSources();
 }
 
+void ModEditorDialog::setupSearchableCombo(QComboBox* combo, const QString& placeholder) {
+  if (!combo) {
+    return;
+  }
+  combo->setEditable(true);
+  combo->setInsertPolicy(QComboBox::NoInsert);
+  QLineEdit* editor = combo->lineEdit();
+  if (!editor) {
+    editor = new QLineEdit(combo);
+    combo->setLineEdit(editor);
+  }
+  editor->setPlaceholderText(placeholder);
+  editor->setClearButtonEnabled(true);
+}
+
+ModEditorDialog::TagRowWidgets* ModEditorDialog::addTagRow(const QString& group,
+                                                           const QString& tag,
+                                                           int insertIndex) {
+  auto row = std::make_unique<TagRowWidgets>();
+  row->container = new QWidget(tagRowsContainer_);
+  auto* layout = new QHBoxLayout(row->container);
+  layout->setContentsMargins(0, 0, 0, 0);
+  layout->setSpacing(6);
+
+  row->groupCombo = new QComboBox(row->container);
+  setupSearchableCombo(row->groupCombo, tr("标签组"));
+  row->tagCombo = new QComboBox(row->container);
+  setupSearchableCombo(row->tagCombo, tr("标签"));
+
+  row->addBtn = new QPushButton(QStringLiteral("+"), row->container);
+  row->removeBtn = new QPushButton(QStringLiteral("-"), row->container);
+  row->addBtn->setFixedWidth(28);
+  row->removeBtn->setFixedWidth(28);
+  row->addBtn->setToolTip(tr("添加标签行"));
+  row->removeBtn->setToolTip(tr("移除该标签行"));
+
+  layout->addWidget(row->groupCombo, 1);
+  layout->addWidget(row->tagCombo, 1);
+  layout->addWidget(row->addBtn);
+  layout->addWidget(row->removeBtn);
+
+  auto* rowPtr = row.get();
+
+  connect(rowPtr->addBtn, &QPushButton::clicked, this, &ModEditorDialog::onAddTagRowClicked);
+  connect(rowPtr->removeBtn, &QPushButton::clicked, this, [this, rowPtr]() { removeTagRow(rowPtr); });
+  connect(rowPtr->groupCombo, &QComboBox::currentTextChanged, this, [this, rowPtr](const QString&) {
+    refreshTagChoices(rowPtr);
+  });
+
+  if (insertIndex < 0 || insertIndex >= static_cast<int>(tagRows_.size())) {
+    tagRowsLayout_->addWidget(rowPtr->container);
+    tagRows_.push_back(std::move(row));
+  } else {
+    tagRowsLayout_->insertWidget(insertIndex, rowPtr->container);
+    tagRows_.insert(tagRows_.begin() + insertIndex, std::move(row));
+  }
+
+  refreshTagChoices(rowPtr);
+  if (!group.isEmpty()) {
+    rowPtr->groupCombo->setCurrentText(group);
+    refreshTagChoices(rowPtr);
+  }
+  if (!tag.isEmpty()) {
+    rowPtr->tagCombo->setCurrentText(tag);
+  }
+
+  updateTagRowRemoveButtons();
+  return rowPtr;
+}
+
+void ModEditorDialog::removeTagRow(TagRowWidgets* row) {
+  if (!row) {
+    return;
+  }
+
+  if (tagRows_.size() <= 1) {
+    if (row->groupCombo) {
+      row->groupCombo->setCurrentIndex(-1);
+      row->groupCombo->setEditText(QString());
+    }
+    if (row->tagCombo) {
+      row->tagCombo->setCurrentIndex(-1);
+      row->tagCombo->setEditText(QString());
+    }
+    refreshTagChoices(row);
+    updateTagRowRemoveButtons();
+    return;
+  }
+
+  auto it = std::find_if(tagRows_.begin(), tagRows_.end(),
+                         [&](const std::unique_ptr<TagRowWidgets>& holder) { return holder.get() == row; });
+  if (it != tagRows_.end()) {
+    if (row->container) {
+      tagRowsLayout_->removeWidget(row->container);
+      row->container->deleteLater();
+    }
+    tagRows_.erase(it);
+  }
+
+  if (tagRows_.empty()) {
+    addTagRow();
+  }
+
+  updateTagRowRemoveButtons();
+}
+
+void ModEditorDialog::clearTagRows() {
+  for (auto& row : tagRows_) {
+    if (row && row->container) {
+      tagRowsLayout_->removeWidget(row->container);
+      row->container->deleteLater();
+    }
+  }
+  tagRows_.clear();
+}
+
+void ModEditorDialog::updateTagRowRemoveButtons() {
+  const bool canRemove = tagRows_.size() > 1;
+  for (auto& row : tagRows_) {
+    if (row && row->removeBtn) {
+      row->removeBtn->setEnabled(canRemove);
+    }
+  }
+}
+
+void ModEditorDialog::refreshTagChoices(TagRowWidgets* row) {
+  if (!row) {
+    return;
+  }
+
+  const QString previousGroup = trimmed(row->groupCombo->currentText());
+  const QString previousTag = trimmed(row->tagCombo->currentText());
+
+  {
+    QSignalBlocker blocker(row->groupCombo);
+    row->groupCombo->clear();
+    row->groupCombo->addItem(QString());
+    for (const auto& group : tagGroups_) {
+      row->groupCombo->addItem(QString::fromStdString(group.name));
+    }
+    for (auto it = tagItemsByGroup_.cbegin(); it != tagItemsByGroup_.cend(); ++it) {
+      const QString& name = it.key();
+      if (row->groupCombo->findText(name) < 0) {
+        row->groupCombo->addItem(name);
+      }
+    }
+    if (!previousGroup.isEmpty()) {
+      row->groupCombo->setCurrentText(previousGroup);
+    }
+  }
+
+  const QString groupValue = trimmed(row->groupCombo->currentText());
+  {
+    QSignalBlocker blocker(row->tagCombo);
+    row->tagCombo->clear();
+    row->tagCombo->addItem(QString());
+    auto it = tagItemsByGroup_.find(groupValue);
+    if (it != tagItemsByGroup_.end()) {
+      for (const QString& item : it.value()) {
+        row->tagCombo->addItem(item);
+      }
+    }
+    if (!previousTag.isEmpty()) {
+      row->tagCombo->setCurrentText(previousTag);
+    }
+  }
+}
+
+void ModEditorDialog::onAddTagRowClicked() {
+  auto* button = qobject_cast<QPushButton*>(sender());
+  int insertIndex = -1;
+  QString groupPrefill;
+  if (button) {
+    for (int i = 0; i < static_cast<int>(tagRows_.size()); ++i) {
+      if (tagRows_[i] && tagRows_[i]->addBtn == button) {
+        insertIndex = i + 1;
+        if (tagRows_[i]->groupCombo) {
+          groupPrefill = trimmed(tagRows_[i]->groupCombo->currentText());
+        }
+        break;
+      }
+    }
+  }
+  auto* row = addTagRow(groupPrefill, QString(), insertIndex);
+  if (row && row->tagCombo) {
+    row->tagCombo->setFocus();
+  }
+}
+
 void ModEditorDialog::loadRelationSources() {
   relationModOptions_ = service_.listVisible();
   if (modId_ > 0) {
@@ -430,9 +668,10 @@ void ModEditorDialog::loadRelationSources() {
 
   relationTagOptions_.clear();
   for (auto it = tagItemsByGroup_.cbegin(); it != tagItemsByGroup_.cend(); ++it) {
-    const QString groupName = it.key();
-    for (const QString& tagName : it.value()) {
-      relationTagOptions_.append(QStringLiteral("%1: %2").arg(groupName, tagName));
+    const QString& groupName = it.key();
+    const QStringList& tags = it.value();
+    for (const QString& tag : tags) {
+      relationTagOptions_.append(QStringLiteral("%1: %2").arg(groupName, tag));
     }
   }
   std::sort(relationTagOptions_.begin(), relationTagOptions_.end(), [](const QString& a, const QString& b) {
@@ -461,19 +700,19 @@ ModEditorDialog::RelationRowWidgets* ModEditorDialog::addRelationRow(RelationKin
   layout->setSpacing(8);
 
   row->kindCombo = new QComboBox(row->container);
-  row->kindCombo->addItem(tr("冲突"), toInt(ModEditorDialog::RelationKind::Conflict));
-  row->kindCombo->addItem(tr("前置"), toInt(ModEditorDialog::RelationKind::Requires));
-  row->kindCombo->addItem(tr("后置"), toInt(ModEditorDialog::RelationKind::RequiredBy));
-  row->kindCombo->addItem(tr("同质"), toInt(ModEditorDialog::RelationKind::Homologous));
-  row->kindCombo->addItem(tr("主从（主）"), toInt(ModEditorDialog::RelationKind::CustomMaster));
-  row->kindCombo->addItem(tr("主从（从）"), toInt(ModEditorDialog::RelationKind::CustomSlave));
-  row->kindCombo->addItem(tr("多人包"), toInt(ModEditorDialog::RelationKind::Party));
+  row->kindCombo->addItem(tr("冲突"), toInt(RelationKind::Conflict));
+  row->kindCombo->addItem(tr("前置"), toInt(RelationKind::Requires));
+  row->kindCombo->addItem(tr("后置"), toInt(RelationKind::RequiredBy));
+  row->kindCombo->addItem(tr("同质"), toInt(RelationKind::Homologous));
+  row->kindCombo->addItem(tr("主从（主）"), toInt(RelationKind::CustomMaster));
+  row->kindCombo->addItem(tr("主从（从）"), toInt(RelationKind::CustomSlave));
+  row->kindCombo->addItem(tr("多人包"), toInt(RelationKind::Party));
   row->kindCombo->setCurrentIndex(row->kindCombo->findData(toInt(kind)));
 
   row->targetTypeCombo = new QComboBox(row->container);
-  row->targetTypeCombo->addItem(tr("MOD"), toInt(ModEditorDialog::RelationTarget::Mod));
-  row->targetTypeCombo->addItem(tr("分类"), toInt(ModEditorDialog::RelationTarget::Category));
-  row->targetTypeCombo->addItem(tr("标签"), toInt(ModEditorDialog::RelationTarget::Tag));
+  row->targetTypeCombo->addItem(tr("MOD"), toInt(RelationTarget::Mod));
+  row->targetTypeCombo->addItem(tr("分类"), toInt(RelationTarget::Category));
+  row->targetTypeCombo->addItem(tr("标签"), toInt(RelationTarget::Tag));
   row->targetTypeCombo->setCurrentIndex(row->targetTypeCombo->findData(toInt(target)));
 
   row->targetValueCombo = new QComboBox(row->container);
@@ -689,6 +928,33 @@ void ModEditorDialog::refreshRelationRowChoices(RelationRowWidgets* row) {
   }
 }
 
+std::vector<ModEditorDialog::RelationSelection> ModEditorDialog::selectedRelations() const {
+  std::vector<RelationSelection> selections;
+  for (const auto& row : relationRows_) {
+    if (!row || !row->kindCombo || !row->targetTypeCombo || !row->targetValueCombo) {
+      continue;
+    }
+    const QString value = row->targetValueCombo->currentText().trimmed();
+    if (value.isEmpty()) {
+      continue;
+    }
+    RelationSelection selection;
+    selection.kind = relationKindFromData(row->kindCombo->currentData().toInt());
+    selection.target = relationTargetFromData(row->targetTypeCombo->currentData().toInt());
+    if (selection.target == RelationTarget::Mod || selection.target == RelationTarget::Category) {
+      const int id = row->targetValueCombo->currentData().toInt();
+      selection.targetValue = id > 0 ? QString::number(id) : value;
+    } else {
+      selection.targetValue = value;
+    }
+    if (row->slotEdit && row->slotEdit->isVisible()) {
+      selection.slotKey = row->slotEdit->text().trimmed();
+    }
+    selections.push_back(std::move(selection));
+  }
+  return selections;
+}
+
 void ModEditorDialog::loadAttributeOptions() {
   attributeOptions_ = config::loadModAttributeOptions();
 
@@ -720,6 +986,7 @@ void ModEditorDialog::loadAttributeOptions() {
   populateCombo(stabilityCombo_, attributeOptions_.stability);
   populateCombo(acquisitionCombo_, attributeOptions_.acquisition);
 }
+
 
 void ModEditorDialog::setMod(const ModRow& mod, const std::vector<TagDescriptor>& tags) {
   modId_ = mod.id;
@@ -769,7 +1036,72 @@ void ModEditorDialog::setMod(const ModRow& mod, const std::vector<TagDescriptor>
 
   setCheckedTags(tags);
   clearRelationRows();
-  addRelationRow();
+
+  const auto relations = service_.listRelationsForMod(mod.id);
+  if (relations.empty()) {
+    addRelationRow();
+  } else {
+    for (const auto& rel : relations) {
+      RelationKind kind;
+      int targetModId = 0;
+      bool isSymmetric = false;
+
+      if (rel.type == "conflicts") {
+        kind = RelationKind::Conflict;
+        isSymmetric = true;
+      } else if (rel.type == "requires") {
+        if (rel.a_mod_id == mod.id) {
+          kind = RelationKind::Requires;
+          targetModId = rel.b_mod_id;
+        } else {
+          kind = RelationKind::RequiredBy;
+          targetModId = rel.a_mod_id;
+        }
+      } else if (rel.type == "homologous") {
+        kind = RelationKind::Homologous;
+        isSymmetric = true;
+      } else if (rel.type == "custom_master") {
+        if (rel.a_mod_id == mod.id) {
+          kind = RelationKind::CustomMaster;
+          targetModId = rel.b_mod_id;
+        } else {
+          kind = RelationKind::CustomSlave;
+          targetModId = rel.a_mod_id;
+        }
+      } else if (rel.type == "party") {
+        kind = RelationKind::Party;
+        isSymmetric = true;
+      } else {
+        continue;
+      }
+
+      if (isSymmetric) {
+        targetModId = (rel.a_mod_id == mod.id) ? rel.b_mod_id : rel.a_mod_id;
+      }
+
+      if (targetModId == 0) {
+        continue;
+      }
+
+      QString targetValue;
+      auto it = std::find_if(relationModOptions_.begin(), relationModOptions_.end(),
+                             [targetModId](const ModRow& row) { return row.id == targetModId; });
+
+      if (it != relationModOptions_.end()) {
+        targetValue = QStringLiteral("%1 (ID %2)").arg(QString::fromStdString(it->name)).arg(it->id);
+      } else {
+        auto targetMod = service_.findMod(targetModId);
+        if (targetMod) {
+          targetValue = QStringLiteral("%1 (ID %2)").arg(QString::fromStdString(targetMod->name)).arg(targetMod->id);
+        } else {
+          targetValue = QStringLiteral("ID %1 (已删除)").arg(targetModId);
+        }
+      }
+
+      const QString slot = QString::fromStdString(rel.slot_key.value_or(""));
+      addRelationRow(kind, RelationTarget::Mod, targetValue, slot);
+    }
+  }
 }
 
 void ModEditorDialog::setCheckedTags(const std::vector<TagDescriptor>& tags) {

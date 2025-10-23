@@ -173,6 +173,38 @@ std::optional<ModRow> RepositoryDao::findById(int id) const {
   return readRow(stmt);
 }
 
+std::optional<ModRow> RepositoryDao::findByFileHash(const std::string& fileHash) const {
+  Stmt stmt(*db_, R"SQL(
+    SELECT
+      id,
+      name,
+      COALESCE(author, ''),
+      COALESCE(rating, 0),
+      COALESCE(category_id, 0),
+      COALESCE(note, ''),
+      COALESCE(last_published_at, ''),
+      COALESCE(last_saved_at, ''),
+      COALESCE(status, '最新'),
+      COALESCE(source_platform, ''),
+      COALESCE(source_url, ''),
+      is_deleted,
+      COALESCE(cover_path, ''),
+      COALESCE(file_path, ''),
+      COALESCE(file_hash, ''),
+      size_mb,
+      COALESCE(integrity, ''),
+      COALESCE(stability, ''),
+      COALESCE(acquisition_method, '')
+    FROM mods
+    WHERE file_hash = ?;
+  )SQL");
+  stmt.bind(1, fileHash);
+  if (!stmt.step()) {
+    return std::nullopt;
+  }
+  return readRow(stmt);
+}
+
 std::vector<ModRow> RepositoryDao::listVisible() const {
   Stmt stmt(*db_, R"SQL(
     SELECT

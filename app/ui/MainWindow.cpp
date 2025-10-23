@@ -478,8 +478,12 @@ void MainWindow::onImport() {
     return;
   }
   ModRow mod = dialog.modData();
-  repo_->createModWithTags(mod, dialog.selectedTags());
-  loadData();
+  try {
+    repo_->createModWithTags(mod, dialog.selectedTags());
+    loadData();
+  } catch (const DbError& e) {
+    QMessageBox::warning(this, tr("导入失败"), tr("MOD 导入失败：%1").arg(e.what()));
+  }
 }
 
 void MainWindow::onEdit() {

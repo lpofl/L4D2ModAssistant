@@ -70,6 +70,12 @@ std::optional<ModRow> RepositoryService::findMod(int modId) const {
 }
 
 int RepositoryService::createModWithTags(const ModRow& mod, const std::vector<TagDescriptor>& tags) {
+  if (!mod.file_hash.empty()) {
+    if (repoDao_->findByFileHash(mod.file_hash)) {
+      throw DbError("A mod with the same file hash already exists.");
+    }
+  }
+
   Db::Tx tx(*db_);
   const int modId = repoDao_->insertMod(mod);
   const auto tagIds = ensureTagIds(*tagDao_, tags);
