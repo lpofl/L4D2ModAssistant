@@ -44,6 +44,8 @@ add_executable(L4D2ModAssistant
   core/repo/RepositoryDao.h
   core/repo/RepositoryService.cpp
   core/repo/RepositoryService.h
+  core/random/Randomizer.cpp
+  core/random/Randomizer.h
   core/config/AttributeOptions.cpp
   core/config/AttributeOptions.h
   core/config/Settings.cpp
@@ -84,6 +86,8 @@ add_executable(L4D2ModAssistantTests
   core/repo/FixedBundleDao.h
   core/repo/RepositoryService.cpp
   core/repo/RepositoryService.h
+  core/random/Randomizer.cpp
+  core/random/Randomizer.h
   core/config/AttributeOptions.cpp
   core/config/AttributeOptions.h
 )
