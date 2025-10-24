@@ -28,6 +28,9 @@
 #include "core/db/Migrations.h"
 #include "core/log/Log.h"
 
+#include <QSortFilterProxyModel>
+#include <QStandardItemModel>
+
 namespace {
 
 QString joinTags(const std::vector<TagWithGroupRow>& tags) {
@@ -81,6 +84,15 @@ void MainWindow::setupUi() {
   setCentralWidget(central);
   resize(1280, 760);
   setWindowTitle(QStringLiteral("L4D2 MOD 助手"));
+
+  filterModel_ = new QStandardItemModel(this);
+  proxyModel_ = new QSortFilterProxyModel(this);
+  proxyModel_->setSourceModel(filterModel_);
+  proxyModel_->setFilterCaseSensitivity(Qt::CaseInsensitive);
+  proxyModel_->setFilterKeyColumn(0);
+  filterValue_->setModel(proxyModel_);
+
+  filterAttribute_->addItems({tr("全部"), tr("名称"), tr("分类"), tr("标签"), tr("作者"), tr("评分")});
 }
 
 QWidget* MainWindow::buildNavigationBar() {
@@ -113,12 +125,14 @@ QWidget* MainWindow::buildRepositoryPage() {
   layout->setSpacing(8);
 
   auto* filterRow = new QHBoxLayout();
-  searchEdit_ = new QLineEdit(page);
-  searchEdit_->setPlaceholderText(tr("搜索名称 / 平台 / 备注"));
-  categoryFilter_ = new QComboBox(page);
+  filterAttribute_ = new QComboBox(page);
+  filterValue_ = new QComboBox(page);
+  filterValue_->setEditable(true);
+
   importBtn_ = new QPushButton(tr("导入"), page);
-  filterRow->addWidget(searchEdit_, 2);
-  filterRow->addWidget(categoryFilter_, 1);
+  filterRow->addWidget(new QLabel(tr("过滤器:"), page));
+  filterRow->addWidget(filterAttribute_, 1);
+  filterRow->addWidget(filterValue_, 2);
   filterRow->addStretch(1);
   filterRow->addWidget(importBtn_);
   layout->addLayout(filterRow);
@@ -206,8 +220,9 @@ QWidget* MainWindow::buildRepositoryPage() {
   layout->addWidget(splitter, 1);
 
   connect(modTable_, &QTableWidget::currentCellChanged, this, &MainWindow::onCurrentRowChanged);
-  connect(searchEdit_, &QLineEdit::textChanged, this, &MainWindow::onFilterChanged);
-  connect(categoryFilter_, &QComboBox::currentTextChanged, this, &MainWindow::onFilterChanged);
+  connect(filterAttribute_, &QComboBox::currentTextChanged, this, &MainWindow::onFilterAttributeChanged);
+  connect(filterValue_, &QComboBox::currentTextChanged, this, &MainWindow::onFilterChanged);
+  connect(filterValue_->lineEdit(), &QLineEdit::textChanged, this, &MainWindow::onFilterValueTextChanged);
   connect(importBtn_, &QPushButton::clicked, this, &MainWindow::onImport);
   connect(editBtn_, &QPushButton::clicked, this, &MainWindow::onEdit);
   connect(deleteBtn_, &QPushButton::clicked, this, &MainWindow::onDelete);
@@ -237,24 +252,40 @@ QWidget* MainWindow::buildSettingsPage() {
 void MainWindow::reloadCategories() {
   categoryNames_.clear();
   categoryParent_.clear();
-  categoryFilter_->blockSignals(true);
-  categoryFilter_->clear();
-  categoryFilter_->addItem(tr("全部分类"), 0);
+  filterModel_->clear();
+
+  auto* allItem = new QStandardItem(tr("全部分类"));
+  allItem->setData(0, Qt::UserRole);
+  filterModel_->appendRow(allItem);
+
   const auto categories = repo_->listCategories();
+  std::vector<CategoryRow> topLevel;
+  std::unordered_map<int, std::vector<CategoryRow>> children;
+
   for (const auto& category : categories) {
-    QString display = QString::fromStdString(category.name);
+    categoryNames_[category.id] = QString::fromStdString(category.name);
     if (category.parent_id.has_value()) {
       const int parentId = *category.parent_id;
       categoryParent_[category.id] = parentId;
-      const auto parentIt = categoryNames_.find(parentId);
-      const QString parentName =
-          parentIt != categoryNames_.end() ? parentIt->second : QStringLiteral("Category#%1").arg(parentId);
-      display = parentName + QStringLiteral(" / ") + display;
+      children[parentId].push_back(category);
+    } else {
+      topLevel.push_back(category);
     }
-    categoryNames_[category.id] = display;
-    categoryFilter_->addItem(display, category.id);
   }
-  categoryFilter_->blockSignals(false);
+
+  for (const auto& parent : topLevel) {
+    auto* parentItem = new QStandardItem(QString::fromStdString(parent.name));
+    parentItem->setData(parent.id, Qt::UserRole);
+    filterModel_->appendRow(parentItem);
+
+    if (children.count(parent.id)) {
+      for (const auto& child : children.at(parent.id)) {
+        auto* childItem = new QStandardItem("  " + QString::fromStdString(child.name));
+        childItem->setData(child.id, Qt::UserRole);
+        filterModel_->appendRow(childItem);
+      }
+    }
+  }
 }
 
 void MainWindow::loadData() {
@@ -271,13 +302,56 @@ void MainWindow::loadData() {
 
 void MainWindow::populateTable() {
   modTable_->setRowCount(0);
-  const QString keyword = searchEdit_->text().trimmed();
-  const int filterCategoryId = categoryFilter_->currentData().toInt();
+
+  const QString filterAttribute = filterAttribute_->currentText();
+  const QString filterValue = filterValue_->currentText();
+
+  int filterId = 0;
+  if (filterValue_->currentIndex() >= 0) {
+    QModelIndex proxyIndex = proxyModel_->index(filterValue_->currentIndex(), 0);
+    QModelIndex sourceIndex = proxyModel_->mapToSource(proxyIndex);
+    filterId = filterModel_->data(sourceIndex, Qt::UserRole).toInt();
+  }
 
   int row = 0;
   for (const auto& mod : mods_) {
-    if (!categoryMatchesFilter(mod.category_id, filterCategoryId)) {
-      continue;
+    if (filterAttribute == tr("分类")) {
+      if (filterId > 0 && !categoryMatchesFilter(mod.category_id, filterId)) {
+        continue;
+      }
+    } else if (filterAttribute == tr("名称")) {
+      const QString name = QString::fromStdString(mod.name);
+      if (!name.contains(filterValue, Qt::CaseInsensitive)) {
+        continue;
+      }
+    } else if (filterAttribute == tr("标签")) {
+      if (filterId > 0) {
+        const auto& modTags = modTagsCache_[mod.id];
+        const auto it = std::find_if(modTags.begin(), modTags.end(), [filterId](const TagWithGroupRow& tag) {
+          return tag.id == filterId;
+        });
+        if (it == modTags.end()) {
+          continue;
+        }
+      }
+    } else if (filterAttribute == tr("作者")) {
+      if (filterValue != tr("全部作者") && !filterValue.isEmpty()) {
+        if (QString::fromStdString(mod.author) != filterValue) {
+          continue;
+        }
+      }
+    } else if (filterAttribute == tr("评分")) {
+      if (filterId != 0) {
+        if (filterId > 0) {
+          if (mod.rating != filterId) {
+            continue;
+          }
+        } else { // filterId < 0 for unrated
+          if (mod.rating > 0) {
+            continue;
+          }
+        }
+      }
     }
 
     const QString name = QString::fromStdString(mod.name);
@@ -292,15 +366,6 @@ void MainWindow::populateTable() {
     const QString stability = toDisplay(mod.stability);
     const QString acquisition = toDisplay(mod.acquisition_method);
     const QString tags = modTagsText_[mod.id];
-
-    if (!keyword.isEmpty()) {
-      const QString haystack =
-          name + u' ' + author + u' ' + status + u' ' + lastPublished + u' ' + lastSaved + u' ' + platform + u' ' +
-          url + u' ' + note + u' ' + integrity + u' ' + stability + u' ' + acquisition + u' ' + tags;
-      if (!haystack.contains(keyword, Qt::CaseInsensitive)) {
-        continue;
-      }
-    }
 
     modTable_->insertRow(row);
     auto* itemName = new QTableWidgetItem(name);
@@ -522,6 +587,90 @@ void MainWindow::onDelete() {
 
   repo_->setModDeleted(modId, true);
   loadData();
+}
+
+void MainWindow::onFilterAttributeChanged(const QString& attribute) {
+  filterValue_->clear();
+  filterValue_->setEnabled(true);
+
+  if (attribute == tr("分类")) {
+    reloadCategories();
+  } else if (attribute == tr("标签")) {
+    reloadTags();
+  } else if (attribute == tr("作者")) {
+    reloadAuthors();
+  } else if (attribute == tr("评分")) {
+    reloadRatings();
+  } else {
+    filterValue_->setEnabled(false);
+  }
+}
+
+void MainWindow::reloadRatings() {
+  filterModel_->clear();
+
+  auto* allItem = new QStandardItem(tr("全部评分"));
+  allItem->setData(0, Qt::UserRole);
+  filterModel_->appendRow(allItem);
+
+  for (int i = 5; i >= 1; --i) {
+    auto* item = new QStandardItem(tr("%1 星").arg(i));
+    item->setData(i, Qt::UserRole);
+    filterModel_->appendRow(item);
+  }
+
+  auto* unratedItem = new QStandardItem(tr("未评分"));
+  unratedItem->setData(-1, Qt::UserRole);
+  filterModel_->appendRow(unratedItem);
+}
+
+void MainWindow::reloadAuthors() {
+  filterModel_->clear();
+
+  auto* allItem = new QStandardItem(tr("全部作者"));
+  allItem->setData("", Qt::UserRole);
+  filterModel_->appendRow(allItem);
+
+  QSet<QString> authors;
+  for (const auto& mod : mods_) {
+    authors.insert(QString::fromStdString(mod.author));
+  }
+
+  for (const auto& author : authors) {
+    auto* authorItem = new QStandardItem(author);
+    authorItem->setData(author, Qt::UserRole);
+    filterModel_->appendRow(authorItem);
+  }
+}
+
+void MainWindow::reloadTags() {
+  filterModel_->clear();
+
+  auto* allItem = new QStandardItem(tr("全部标签"));
+  allItem->setData(0, Qt::UserRole);
+  filterModel_->appendRow(allItem);
+
+  const auto tags = repo_->listTags();
+  QMap<QString, QList<TagWithGroupRow>> groupedTags;
+  for (const auto& tag : tags) {
+    groupedTags[QString::fromStdString(tag.group_name)].append(tag);
+  }
+
+  for (auto it = groupedTags.constBegin(); it != groupedTags.constEnd(); ++it) {
+    auto* groupItem = new QStandardItem(it.key());
+    groupItem->setFlags(groupItem->flags() & ~Qt::ItemIsSelectable);
+    filterModel_->appendRow(groupItem);
+
+    for (const auto& tag : it.value()) {
+      auto* tagItem = new QStandardItem("  " + QString::fromStdString(tag.name));
+      tagItem->setData(tag.id, Qt::UserRole);
+      filterModel_->appendRow(tagItem);
+    }
+  }
+}
+
+void MainWindow::onFilterValueTextChanged(const QString& text) {
+  proxyModel_->setFilterFixedString(text);
 }
 
 void MainWindow::onFilterChanged() {

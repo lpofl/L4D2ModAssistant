@@ -16,6 +16,9 @@ class QPushButton;
 class QLabel;
 class QTextEdit;
 
+class QSortFilterProxyModel;
+class QStandardItemModel;
+
 /**
  * @brief Application main window hosting repository/selector/settings tabs.
  */
@@ -30,6 +33,8 @@ private slots:
   void onEdit();
   void onDelete();
   void onFilterChanged();
+  void onFilterAttributeChanged(const QString& attribute);
+  void onFilterValueTextChanged(const QString& text);
   void onCurrentRowChanged(int currentRow, int currentColumn, int previousRow, int previousColumn);
   void switchToRepository();
   void switchToSelector();
@@ -42,6 +47,9 @@ private:
   QWidget* buildSelectorPage();
   QWidget* buildSettingsPage();
   void reloadCategories();
+  void reloadTags();
+  void reloadAuthors();
+  void reloadRatings();
   void loadData();
   void populateTable();
   void updateDetailForMod(int modId);
@@ -64,8 +72,8 @@ private:
   QPushButton* settingsButton_{};
 
   // Repository page widgets
-  QLineEdit* searchEdit_{};
-  QComboBox* categoryFilter_{};
+  QComboBox* filterAttribute_{};
+  QComboBox* filterValue_{};
   QTableWidget* modTable_{};
   QPushButton* importBtn_{};
   QPushButton* editBtn_{};
@@ -81,4 +89,8 @@ private:
   std::unordered_map<int, int> categoryParent_;
   std::unordered_map<int, QString> modTagsText_;
   std::unordered_map<int, std::vector<TagWithGroupRow>> modTagsCache_;
+
+  // Filter model
+  QSortFilterProxyModel* proxyModel_{};
+  QStandardItemModel* filterModel_{};
 };
