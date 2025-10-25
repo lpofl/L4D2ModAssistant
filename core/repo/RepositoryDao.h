@@ -49,11 +49,15 @@ public:
   void updateMod(const ModRow& row);
   /// Toggle logical deletion flag.
   void setDeleted(int id, bool deleted);
+  /// Permanently delete all mods marked as deleted.
+  void deleteDeletedMods();
   /// Fetch row by primary key.
   std::optional<ModRow> findById(int id) const;
   std::optional<ModRow> findByFileHash(const std::string& fileHash) const;
   /// List all visible (not deleted) mods.
   std::vector<ModRow> listVisible() const;
+  /// List all mods, optionally including logically deleted ones.
+  std::vector<ModRow> listAll(bool includeDeleted = false) const;
 
 private:
   std::shared_ptr<Db> db_;

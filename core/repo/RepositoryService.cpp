@@ -62,7 +62,11 @@ RepositoryService::RepositoryService(std::shared_ptr<Db> db)
       fixedBundleDao_(std::make_unique<FixedBundleDao>(db_)) {}
 
 std::vector<ModRow> RepositoryService::listVisible() const {
-  return repoDao_->listVisible();
+  return repoDao_->listAll(false);
+}
+
+std::vector<ModRow> RepositoryService::listAll(bool includeDeleted) const {
+  return repoDao_->listAll(includeDeleted);
 }
 
 std::optional<ModRow> RepositoryService::findMod(int modId) const {
@@ -104,6 +108,10 @@ void RepositoryService::updateModTags(int modId, const std::vector<TagDescriptor
 
 void RepositoryService::setModDeleted(int modId, bool deleted) {
   repoDao_->setDeleted(modId, deleted);
+}
+
+void RepositoryService::clearDeletedMods() {
+  repoDao_->deleteDeletedMods(); // This method needs to be implemented in RepositoryDao
 }
 
 std::vector<CategoryRow> RepositoryService::listCategories() const {

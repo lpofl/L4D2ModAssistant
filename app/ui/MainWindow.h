@@ -16,6 +16,8 @@ class QPushButton;
 class QLabel;
 class QTextEdit;
 
+class QCheckBox;
+
 class QSortFilterProxyModel;
 class QStandardItemModel;
 
@@ -40,6 +42,18 @@ private slots:
   void switchToSelector();
   void switchToSettings();
 
+  // Selector page slots
+  void onConfigureStrategy();
+  void onRandomize();
+  void onSaveCombination();
+  void onApplyToGame();
+
+  // Repository page slots
+  void onShowDeletedModsToggled(bool checked);
+
+  // Settings page slots
+  void onClearDeletedMods();
+
 private:
   void setupUi();
   QWidget* buildNavigationBar();
@@ -50,6 +64,7 @@ private:
   void reloadTags();
   void reloadAuthors();
   void reloadRatings();
+  void reloadRepoSelectorData();
   void loadData();
   void populateTable();
   void updateDetailForMod(int modId);
@@ -61,6 +76,7 @@ private:
   bool categoryMatchesFilter(int modCategoryId, int filterCategoryId) const;
   std::vector<TagDescriptor> tagsForMod(int modId) const;
   void updateTabButtonState(QPushButton* active);
+  QString detectL4D2GameDirectory() const; // New helper method
 
   std::unique_ptr<RepositoryService> repo_;
   QString repoDir_;
@@ -82,6 +98,21 @@ private:
   QLabel* coverLabel_{};
   QTextEdit* noteView_{};
   QLabel* metaLabel_{};
+  QCheckBox* showDeletedModsCheckBox_{};
+
+  // Selector page widgets
+  QTableWidget* gameDirTable_{};
+  QTableWidget* repoTable_{};
+  QComboBox* gameDirCategoryFilter_{};
+  QComboBox* repoCategoryFilter_{};
+  QPushButton* configureStrategyBtn_{};
+  QPushButton* randomizeBtn_{};
+  QPushButton* saveCombinationBtn_{};
+  QPushButton* applyToGameBtn_{};
+  QLabel* strategyInfoLabel_{};
+
+  // Settings page widgets
+  QPushButton* clearDeletedModsBtn_{};
 
   // Data cache
   std::vector<ModRow> mods_;
@@ -93,4 +124,8 @@ private:
   // Filter model
   QSortFilterProxyModel* proxyModel_{};
   QStandardItemModel* filterModel_{};
+
+  // Selector filter model
+  QSortFilterProxyModel* repoSelectorProxyModel_{};
+  QStandardItemModel* repoSelectorFilterModel_{};
 };

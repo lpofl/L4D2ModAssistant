@@ -2,13 +2,14 @@
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <cstdlib>
+#include <spdlog/spdlog.h>
 
 /**
  * @file Settings.cpp
  * @brief Load/create application settings backed by a JSON file.
  */
 
-using json = nlohmann::json;
+// Note: use nlohmann::json directly; no alias to avoid unused warnings.
 
 std::filesystem::path Settings::defaultSettingsPath() {
   // Resolve default settings path; Windows uses APPDATA, Linux uses HOME.
@@ -23,83 +24,102 @@ std::filesystem::path Settings::defaultSettingsPath() {
 #endif
 }
 
+// (Removed unused defaultRepoDirectory and duplicate includes)
+
 namespace {
-std::filesystem::path defaultRepoDirectory() {
-  return std::filesystem::path("database");
+
+const std::string kSettingsFilePath = "setting_config/LMA_settings.json";
+
+// Helper for ImportAction enum
+std::string importActionToString(ImportAction action) {
+  switch (action) {
+    case ImportAction::Cut: return "Cut";
+    case ImportAction::Copy: return "Copy";
+    case ImportAction::None: return "None";
+  }
+  return "Cut"; // Default
 }
+
+ImportAction stringToImportAction(const std::string& str) {
+  if (str == "Copy") return ImportAction::Copy;
+  if (str == "None") return ImportAction::None;
+  return ImportAction::Cut; // Default
 }
+
+// Helper for AddonsAutoImportMethod enum
+std::string addonsAutoImportMethodToString(AddonsAutoImportMethod method) {
+  switch (method) {
+    case AddonsAutoImportMethod::Copy: return "Copy";
+    case AddonsAutoImportMethod::Move: return "Move";
+  }
+  return "Copy"; // Default
+}
+
+AddonsAutoImportMethod stringToAddonsAutoImportMethod(const std::string& str) {
+  if (str == "Move") return AddonsAutoImportMethod::Move;
+  return AddonsAutoImportMethod::Copy; // Default
+}
+
+} // namespace
 
 Settings Settings::loadOrCreate() {
-  Settings s;
-  auto path = defaultSettingsPath(); // Default config location
-  std::filesystem::create_directories(path.parent_path());
-
-  const auto repoDirDefault = defaultRepoDirectory();
-  const std::string repoDbDefaultName = "l4d2mod.db";
-
-  if (std::filesystem::exists(path)) { // Config file exists
-    std::ifstream in(path);
-    json j;
-    in >> j;
-    in.close();
-
-    bool shouldRewrite = false;
-    s.repoDir = j.value("repo_dir", repoDirDefault.string());
-    if (s.repoDir == "repo") {
-      s.repoDir = repoDirDefault.string();
-      shouldRewrite = true;
+  Settings settings;
+  std::ifstream ifs(kSettingsFilePath);
+  if (ifs.is_open()) {
+    try {
+      nlohmann::json j;
+      ifs >> j;
+      settings.repoDir = j.value("repoDir", ""); // Default to empty string
+      settings.repoDbPath = settings.repoDir + "/repo.db"; // Derived from repoDir
+      // New settings
+      settings.gameDirectory = j.value("gameDirectory", "");
+      settings.importAction = stringToImportAction(j.value("importAction", "Cut"));
+      settings.addonsAutoImportEnabled = j.value("addonsAutoImportEnabled", false);
+      settings.addonsAutoImportMethod = stringToAddonsAutoImportMethod(j.value("addonsAutoImportMethod", "Copy"));
+      settings.combinerMemoryWarningMb = j.value("combinerMemoryWarningMb", 1024); // Default
+      settings.retainDataOnDelete = j.value("retainDataOnDelete", false); // Default
+    } catch (const nlohmann::json::exception& e) {
+      spdlog::error("Failed to parse settings file {}: {}", kSettingsFilePath, e.what());
+      // Fallback to default settings
+      settings.repoDir = "";
+      settings.repoDbPath = settings.repoDir + "/repo.db"; // Derived from repoDir
+      settings.gameDirectory = "";
+      settings.importAction = ImportAction::Cut;
+      settings.addonsAutoImportEnabled = false;
+      settings.addonsAutoImportMethod = AddonsAutoImportMethod::Copy;
+      settings.combinerMemoryWarningMb = 1024; // Default
+      settings.retainDataOnDelete = false; // Default
     }
+  } else {
+    spdlog::info("Settings file not found at {}, creating default.", kSettingsFilePath);
+    settings.repoDir = "";
+    settings.repoDbPath = settings.repoDir + "/repo.db"; // Derived from repoDir
+    settings.gameDirectory = "";
+    settings.importAction = ImportAction::Cut;
+    settings.addonsAutoImportEnabled = false;
+    settings.addonsAutoImportMethod = AddonsAutoImportMethod::Copy;
+    settings.combinerMemoryWarningMb = 1024; // Default
+    settings.retainDataOnDelete = false; // Default
+    settings.save(); // Save default settings
+  }
+  return settings;
+}
 
-    auto repoDbFromConfig = j.value("repo_db_path", std::string{});
-    if (!repoDbFromConfig.empty()) {
-      if (repoDbFromConfig == "repo/repo.db") {
-        s.repoDbPath = (repoDirDefault / repoDbDefaultName).string();
-        shouldRewrite = true;
-      } else {
-        s.repoDbPath = repoDbFromConfig;
-      }
-    } else {
-      s.repoDbPath = (std::filesystem::path(s.repoDir) / repoDbDefaultName).string();
-      shouldRewrite = true;
-    }
-    s.gameAddonsDir = j.value("game_addons_dir", "left4dead2/addons");
-    s.moveOnImport = j.value("move_on_import", false);
-    s.showDeleted = j.value("show_deleted", true);
+void Settings::save() const {
+  nlohmann::json j;
+  j["repoDir"] = repoDir;
+  // New settings
+  j["gameDirectory"] = gameDirectory;
+  j["importAction"] = importActionToString(importAction);
+  j["addonsAutoImportEnabled"] = addonsAutoImportEnabled;
+  j["addonsAutoImportMethod"] = addonsAutoImportMethodToString(addonsAutoImportMethod);
+  j["combinerMemoryWarningMb"] = combinerMemoryWarningMb;
+  j["retainDataOnDelete"] = retainDataOnDelete;
 
-    if (shouldRewrite) {
-      j["repo_dir"] = s.repoDir;
-      j["repo_db_path"] = s.repoDbPath;
-      std::ofstream out(path);
-      out << j.dump(2);
-    }
-  } else { // Config file missing; create defaults
-    s.repoDir = repoDirDefault.string();
-    std::filesystem::create_directories(s.repoDir);
-    s.repoDbPath = (repoDirDefault / repoDbDefaultName).string();
-    s.gameAddonsDir = "left4dead2/addons";
-    s.moveOnImport = false;
-    s.showDeleted = true;
-    json j = {
-        {"repo_dir", s.repoDir},
-        {"repo_db_path", s.repoDbPath},
-        {"game_addons_dir", s.gameAddonsDir},
-        {"move_on_import", s.moveOnImport},
-        {"show_deleted", s.showDeleted},
-        {"ui", {{"columns", {"name", "author", "rating", "category", "tags", "note"}}}}};
-    std::ofstream out(path);
-    out << j.dump(2);
+  std::ofstream ofs(kSettingsFilePath);
+  if (ofs.is_open()) {
+    ofs << j.dump(2); // Pretty print with 2 spaces
+  } else {
+    spdlog::error("Failed to save settings file {}", kSettingsFilePath);
   }
-
-  if (s.repoDir.empty()) {
-    s.repoDir = repoDirDefault.string();
-  }
-  auto repoDirPath = std::filesystem::path(s.repoDir);
-  if (!repoDirPath.empty()) {
-    std::filesystem::create_directories(repoDirPath);
-  }
-  auto dbPath = std::filesystem::path(s.repoDbPath);
-  if (!dbPath.parent_path().empty()) {
-    std::filesystem::create_directories(dbPath.parent_path());
-  }
-  return s;
 }

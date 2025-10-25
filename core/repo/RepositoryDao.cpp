@@ -141,6 +141,11 @@ void RepositoryDao::setDeleted(int id, bool deleted) {
   stmt.step();
 }
 
+void RepositoryDao::deleteDeletedMods() {
+  Stmt stmt(*db_, "DELETE FROM mods WHERE is_deleted = 1;");
+  stmt.step();
+}
+
 std::optional<ModRow> RepositoryDao::findById(int id) const {
   Stmt stmt(*db_, R"SQL(
     SELECT
@@ -230,6 +235,45 @@ std::vector<ModRow> RepositoryDao::listVisible() const {
     FROM v_mods_visible
     ORDER BY name;
   )SQL");
+
+  std::vector<ModRow> rows;
+  while (stmt.step()) {
+    rows.push_back(readRow(stmt));
+  }
+  return rows;
+}
+
+std::vector<ModRow> RepositoryDao::listAll(bool includeDeleted) const {
+  std::string sql = R"SQL(
+    SELECT
+      id,
+      name,
+      COALESCE(author, ''),
+      COALESCE(rating, 0),
+      COALESCE(category_id, 0),
+      COALESCE(note, ''),
+      COALESCE(last_published_at, ''),
+      COALESCE(last_saved_at, ''),
+      COALESCE(status, '最新'),
+      COALESCE(source_platform, ''),
+      COALESCE(source_url, ''),
+      is_deleted,
+      COALESCE(cover_path, ''),
+      COALESCE(file_path, ''),
+      COALESCE(file_hash, ''),
+      size_mb,
+      COALESCE(integrity, ''),
+      COALESCE(stability, ''),
+      COALESCE(acquisition_method, '')
+    FROM mods
+  )SQL";
+
+  if (!includeDeleted) {
+    sql += " WHERE is_deleted = 0";
+  }
+  sql += " ORDER BY name;";
+
+  Stmt stmt(*db_, sql);
 
   std::vector<ModRow> rows;
   while (stmt.step()) {

@@ -29,6 +29,8 @@ public:
 
   /// Query visible (not deleted) mods.
   std::vector<ModRow> listVisible() const;
+  /// Query all mods, optionally including logically deleted ones.
+  std::vector<ModRow> listAll(bool includeDeleted = false) const;
   /// Lookup a mod by id.
   std::optional<ModRow> findMod(int modId) const;
   /// Create mod and bind tags atomically.
@@ -39,6 +41,8 @@ public:
   void updateModTags(int modId, const std::vector<TagDescriptor>& tags);
   /// Toggle logical deletion flag.
   void setModDeleted(int modId, bool deleted);
+  /// Permanently delete all logically deleted mods.
+  void clearDeletedMods();
 
   /// Category management.
   std::vector<CategoryRow> listCategories() const;

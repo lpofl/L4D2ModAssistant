@@ -1,0 +1,9 @@
+{
+  "repoDir": "",
+  "gameDirectory": "",
+  "importAction": "Cut",
+  "addonsAutoImportEnabled": false,
+  "addonsAutoImportMethod": "Copy",
+  "combinerMemoryWarningMb": 2048,
+  "retainDataOnDelete": true
+}
