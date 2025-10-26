@@ -1,26 +1,40 @@
 ﻿#include "app/ui/MainWindow.h"
 
 #include <algorithm>
+#include <functional>
 
+#include <QAbstractItemView>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication> // For applicationDirPath()
 #include <QDir>             // For mkpath()
 #include <QSettings>        // For registry access
+#include <QFileDialog>
 #include <QFileInfo>
+#include <QFormLayout>
+#include <QFrame>
 #include <QHeaderView>
+#include <QHBoxLayout>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QList>
+#include <QListWidget>
+#include <QMap>
 #include <QMessageBox>
 #include <QPixmap>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QSignalBlocker>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTextEdit>
-#include <QMap>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <QTreeWidgetItemIterator>
+#include <QSizePolicy>
 #include <QStringList>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -57,59 +71,75 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   setupUi();
 
   initLogging();
-  Settings settings = Settings::loadOrCreate();
+  settings_ = Settings::loadOrCreate();
+
+  const QString appDirPath = QCoreApplication::applicationDirPath();
+  const QString defaultRepoPath = QDir(appDirPath).filePath("mods");
+  const QString legacyRepoPath = QDir(appDirPath).filePath("repo");
+  const QString defaultDatabasePath = QDir(appDirPath).filePath("database/repo.db");
 
   bool settingsChanged = false;
-  if (settings.repoDir.empty()) {
-    QString appDirPath = QCoreApplication::applicationDirPath();
-    QString defaultRepoPath = QDir(appDirPath).filePath("repo");
-    settings.repoDir = defaultRepoPath.toStdString();
-    settings.repoDbPath = settings.repoDir + "/repo.db"; // Update derived db path
+
+  QString repoDirString = QString::fromStdString(settings_.repoDir);
+  const QString cleanedLegacyRepo = QDir::cleanPath(legacyRepoPath);
+  const QString cleanedDefaultRepo = QDir::cleanPath(defaultRepoPath);
+  const bool usingLegacyRepo = !repoDirString.isEmpty() && QDir::cleanPath(repoDirString) == cleanedLegacyRepo;
+  if (repoDirString.isEmpty() || usingLegacyRepo) {
+    if (usingLegacyRepo) {
+      QDir legacyDir(cleanedLegacyRepo);
+      QDir newDir(cleanedDefaultRepo);
+      if (legacyDir.exists() && !newDir.exists()) {
+        if (!QDir().rename(cleanedLegacyRepo, cleanedDefaultRepo)) {
+          spdlog::warn("Failed to rename legacy repo directory {} to {}", cleanedLegacyRepo.toStdString(), cleanedDefaultRepo.toStdString());
+        }
+      }
+    }
+    settings_.repoDir = cleanedDefaultRepo.toStdString();
     settingsChanged = true;
-    spdlog::info("repoDir was empty, set to default: {}", settings.repoDir);
+    spdlog::info("repoDir set to default mods directory: {}", settings_.repoDir);
   }
 
-  QDir repoDir(QString::fromStdString(settings.repoDir));
+  settings_.repoDbPath = QDir::cleanPath(defaultDatabasePath).toStdString();
+
+  QDir repoDir(QString::fromStdString(settings_.repoDir));
   if (!repoDir.exists()) {
-    if (repoDir.mkpath(".")) { // Create the directory if it doesn't exist
-      spdlog::info("Created repo directory: {}", settings.repoDir);
+    if (repoDir.mkpath(".")) {
+      spdlog::info("Created repo directory: {}", settings_.repoDir);
       settingsChanged = true;
     } else {
-      spdlog::error("Failed to create repo directory: {}", settings.repoDir);
-      // Handle error, maybe fallback or show message
+      spdlog::error("Failed to create repo directory: {}", settings_.repoDir);
     }
   }
 
-  if (settingsChanged) {
-    settings.save(); // Save settings if repoDir was modified or created
+  const QString databaseDirPath = QDir(appDirPath).filePath("database");
+  QDir databaseDir(databaseDirPath);
+  if (!databaseDir.exists()) {
+    if (!databaseDir.mkpath(".")) {
+      spdlog::error("Failed to create database directory: {}", databaseDirPath.toStdString());
+    }
   }
 
   // Detect L4D2 game directory if empty
-  if (settings.gameDirectory.empty()) {
+  if (settings_.gameDirectory.empty()) {
     QString detectedPath = detectL4D2GameDirectory();
     if (!detectedPath.isEmpty()) {
-      settings.gameDirectory = detectedPath.toStdString();
+      settings_.gameDirectory = detectedPath.toStdString();
       settingsChanged = true;
-      spdlog::info("Detected L4D2 game directory: {}", settings.gameDirectory);
+      spdlog::info("Detected L4D2 game directory: {}", settings_.gameDirectory);
     } else {
       spdlog::warn("Could not detect L4D2 game directory automatically.");
     }
   }
 
   if (settingsChanged) {
-    settings.save(); // Save settings if gameDirectory was modified
+    settings_.save();
   }
 
-  repoDir_ = QString::fromStdString(settings.repoDir);
-  spdlog::info("Repo DB: {}", settings.repoDbPath);
-
-  auto db = std::make_shared<Db>(settings.repoDbPath);
-  runMigrations(*db);
-  spdlog::info("Schema ready, version {}", migrations::currentSchemaVersion(*db));
-  repo_ = std::make_unique<RepositoryService>(db);
-
-  reloadCategories();
-  loadData();
+  reinitializeRepository(settings_);
+  refreshBasicSettingsUi();
+  refreshCategoryManagementUi();
+  refreshTagManagementUi();
+  refreshDeletionSettingsUi();
 }
 
 void MainWindow::setupUi() {
@@ -379,24 +409,490 @@ QWidget* MainWindow::buildSelectorPage() {
 
 QWidget* MainWindow::buildSettingsPage() {
   auto* page = new QWidget(this);
-  auto* layout = new QVBoxLayout(page);
+  auto* layout = new QHBoxLayout(page);
+  layout->setContentsMargins(12, 12, 12, 12);
+  layout->setSpacing(0);
+
+  settingsNav_ = new QListWidget(page);
+  settingsNav_->setSelectionMode(QAbstractItemView::SingleSelection);
+  settingsNav_->setFixedWidth(180);
+  settingsNav_->addItem(tr("基础设置"));
+  settingsNav_->addItem(tr("分类管理"));
+  settingsNav_->addItem(tr("标签管理"));
+  settingsNav_->addItem(tr("删除管理"));
+  layout->addWidget(settingsNav_);
+
+  auto* divider = new QFrame(page);
+  divider->setFrameShape(QFrame::VLine);
+  divider->setFrameShadow(QFrame::Sunken);
+  divider->setLineWidth(1);
+  divider->setMidLineWidth(0);
+  layout->addWidget(divider);
+
+  settingsStack_ = new QStackedWidget(page);
+  auto wrapScroll = [](QWidget* content) {
+    auto* scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidget(content);
+    return scroll;
+  };
+  settingsStack_->addWidget(wrapScroll(buildBasicSettingsPane()));
+  settingsStack_->addWidget(wrapScroll(buildCategoryManagementPane()));
+  settingsStack_->addWidget(wrapScroll(buildTagManagementPane()));
+  settingsStack_->addWidget(wrapScroll(buildDeletionPane()));
+  layout->addWidget(settingsStack_, 1);
+
+  connect(settingsNav_, &QListWidget::currentRowChanged, this, &MainWindow::onSettingsNavChanged);
+  ensureSettingsNavSelection();
+
+  return page;
+}
+
+QWidget* MainWindow::buildBasicSettingsPane() {
+  auto* container = new QWidget(this);
+  auto* layout = new QVBoxLayout(container);
+  layout->setContentsMargins(12, 12, 12, 12);
+  layout->setSpacing(16);
+
+  auto* form = new QFormLayout();
+  form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+  form->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
+  form->setSpacing(12);
+
+  settingsRepoDirEdit_ = new QLineEdit(container);
+  settingsRepoDirEdit_->setPlaceholderText(tr("选择或输入仓库目录"));
+  settingsRepoBrowseBtn_ = new QPushButton(tr("浏览..."), container);
+  auto* repoRow = new QHBoxLayout();
+  repoRow->setContentsMargins(0, 0, 0, 0);
+  repoRow->setSpacing(8);
+  repoRow->addWidget(settingsRepoDirEdit_, 1);
+  repoRow->addWidget(settingsRepoBrowseBtn_);
+  auto* repoWrapper = new QWidget(container);
+  repoWrapper->setLayout(repoRow);
+  form->addRow(tr("仓库目录"), repoWrapper);
+
+  settingsGameDirEdit_ = new QLineEdit(container);
+  settingsGameDirEdit_->setPlaceholderText(tr("选择或输入游戏目录"));
+  settingsGameDirBrowseBtn_ = new QPushButton(tr("浏览..."), container);
+  auto* gameRow = new QHBoxLayout();
+  gameRow->setContentsMargins(0, 0, 0, 0);
+  gameRow->setSpacing(8);
+  gameRow->addWidget(settingsGameDirEdit_, 1);
+  gameRow->addWidget(settingsGameDirBrowseBtn_);
+  auto* gameWrapper = new QWidget(container);
+  gameWrapper->setLayout(gameRow);
+  form->addRow(tr("游戏目录"), gameWrapper);
+
+  importModeCombo_ = new QComboBox(container);
+  importModeCombo_->addItem(tr("剪切到仓库目录"), static_cast<int>(ImportAction::Cut));
+  importModeCombo_->addItem(tr("复制到仓库目录"), static_cast<int>(ImportAction::Copy));
+  importModeCombo_->addItem(tr("仅链接"), static_cast<int>(ImportAction::None));
+  form->addRow(tr("导入方式"), importModeCombo_);
+
+  autoImportCheckbox_ = new QCheckBox(tr("自动导入游戏目录下的 addons"), container);
+  form->addRow(QString(), autoImportCheckbox_);
+
+  autoImportModeCombo_ = new QComboBox(container);
+  autoImportModeCombo_->addItem(tr("剪切到仓库目录"), static_cast<int>(AddonsAutoImportMethod::Cut));
+  autoImportModeCombo_->addItem(tr("复制到仓库目录"), static_cast<int>(AddonsAutoImportMethod::Copy));
+  autoImportModeCombo_->addItem(tr("仅链接"), static_cast<int>(AddonsAutoImportMethod::Link));
+  form->addRow(tr("自动导入方式"), autoImportModeCombo_);
+
+  layout->addLayout(form);
+
+  settingsStatusLabel_ = new QLabel(container);
+  settingsStatusLabel_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+
+  saveSettingsBtn_ = new QPushButton(tr("保存设置"), container);
+  auto* actionRow = new QHBoxLayout();
+  actionRow->setContentsMargins(0, 0, 0, 0);
+  actionRow->setSpacing(12);
+  actionRow->addWidget(settingsStatusLabel_, 1);
+  actionRow->addWidget(saveSettingsBtn_);
+  layout->addLayout(actionRow);
+
+  layout->addStretch(1);
+
+  connect(settingsRepoBrowseBtn_, &QPushButton::clicked, this, &MainWindow::onBrowseRepoDir);
+  connect(settingsGameDirBrowseBtn_, &QPushButton::clicked, this, &MainWindow::onBrowseGameDir);
+  connect(importModeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onImportModeChanged);
+  connect(autoImportCheckbox_, &QCheckBox::toggled, this, &MainWindow::onAutoImportToggled);
+  connect(autoImportModeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onAutoImportModeChanged);
+  connect(saveSettingsBtn_, &QPushButton::clicked, this, &MainWindow::onSaveSettings);
+
+  return container;
+}
+
+QWidget* MainWindow::buildCategoryManagementPane() {
+  auto* container = new QWidget(this);
+  auto* layout = new QVBoxLayout(container);
   layout->setContentsMargins(12, 12, 12, 12);
   layout->setSpacing(12);
 
-  // Clear Deleted MOD Data Button
-  clearDeletedModsBtn_ = new QPushButton(tr("清除已删除MOD数据记录"), page);
-  layout->addWidget(clearDeletedModsBtn_);
-  layout->addStretch(1); // Push button to top
+  categoryTree_ = new QTreeWidget(container);
+  categoryTree_->setHeaderHidden(true);
+  categoryTree_->setSelectionMode(QAbstractItemView::SingleSelection);
+  layout->addWidget(categoryTree_, 1);
 
-  // Connect the button
+  auto* buttonRow = new QHBoxLayout();
+  buttonRow->setContentsMargins(0, 0, 0, 0);
+  buttonRow->setSpacing(8);
+  categoryAddRootBtn_ = new QPushButton(tr("新增一级分类"), container);
+  categoryAddChildBtn_ = new QPushButton(tr("新增子分类"), container);
+  categoryRenameBtn_ = new QPushButton(tr("重命名"), container);
+  categoryDeleteBtn_ = new QPushButton(tr("删除"), container);
+  buttonRow->addWidget(categoryAddRootBtn_);
+  buttonRow->addWidget(categoryAddChildBtn_);
+  buttonRow->addWidget(categoryRenameBtn_);
+  buttonRow->addWidget(categoryDeleteBtn_);
+  buttonRow->addStretch(1);
+  layout->addLayout(buttonRow);
+
+  connect(categoryTree_, &QTreeWidget::itemSelectionChanged, this, &MainWindow::onCategorySelectionChanged);
+  connect(categoryAddRootBtn_, &QPushButton::clicked, this, &MainWindow::onAddCategoryTopLevel);
+  connect(categoryAddChildBtn_, &QPushButton::clicked, this, &MainWindow::onAddCategoryChild);
+  connect(categoryRenameBtn_, &QPushButton::clicked, this, &MainWindow::onRenameCategory);
+  connect(categoryDeleteBtn_, &QPushButton::clicked, this, &MainWindow::onDeleteCategory);
+
+  return container;
+}
+
+QWidget* MainWindow::buildTagManagementPane() {
+  auto* container = new QWidget(this);
+  auto* layout = new QVBoxLayout(container);
+  layout->setContentsMargins(12, 12, 12, 12);
+  layout->setSpacing(12);
+
+  auto* contentRow = new QHBoxLayout();
+  contentRow->setContentsMargins(0, 0, 0, 0);
+  contentRow->setSpacing(12);
+
+  auto* groupPanel = new QVBoxLayout();
+  groupPanel->setSpacing(8);
+  tagGroupList_ = new QListWidget(container);
+  tagGroupList_->setSelectionMode(QAbstractItemView::SingleSelection);
+  groupPanel->addWidget(tagGroupList_, 1);
+  auto* groupButtons = new QHBoxLayout();
+  groupButtons->setSpacing(8);
+  tagGroupAddBtn_ = new QPushButton(tr("新增组"), container);
+  tagGroupRenameBtn_ = new QPushButton(tr("重命名"), container);
+  tagGroupDeleteBtn_ = new QPushButton(tr("删除"), container);
+  groupButtons->addWidget(tagGroupAddBtn_);
+  groupButtons->addWidget(tagGroupRenameBtn_);
+  groupButtons->addWidget(tagGroupDeleteBtn_);
+  groupButtons->addStretch(1);
+  groupPanel->addLayout(groupButtons);
+
+  auto* tagPanel = new QVBoxLayout();
+  tagPanel->setSpacing(8);
+  tagList_ = new QListWidget(container);
+  tagList_->setSelectionMode(QAbstractItemView::SingleSelection);
+  tagPanel->addWidget(tagList_, 1);
+  auto* tagButtons = new QHBoxLayout();
+  tagButtons->setSpacing(8);
+  tagAddBtn_ = new QPushButton(tr("新增标签"), container);
+  tagRenameBtn_ = new QPushButton(tr("重命名"), container);
+  tagDeleteBtn_ = new QPushButton(tr("删除"), container);
+  tagButtons->addWidget(tagAddBtn_);
+  tagButtons->addWidget(tagRenameBtn_);
+  tagButtons->addWidget(tagDeleteBtn_);
+  tagButtons->addStretch(1);
+  tagPanel->addLayout(tagButtons);
+
+  contentRow->addLayout(groupPanel, 1);
+  contentRow->addLayout(tagPanel, 1);
+  layout->addLayout(contentRow, 1);
+  layout->addStretch(1);
+
+  connect(tagGroupList_, &QListWidget::currentRowChanged, this, &MainWindow::onTagGroupSelectionChanged);
+  connect(tagList_, &QListWidget::currentRowChanged, this, &MainWindow::onTagSelectionChanged);
+  connect(tagGroupAddBtn_, &QPushButton::clicked, this, &MainWindow::onAddTagGroup);
+  connect(tagGroupRenameBtn_, &QPushButton::clicked, this, &MainWindow::onRenameTagGroup);
+  connect(tagGroupDeleteBtn_, &QPushButton::clicked, this, &MainWindow::onDeleteTagGroup);
+  connect(tagAddBtn_, &QPushButton::clicked, this, &MainWindow::onAddTag);
+  connect(tagRenameBtn_, &QPushButton::clicked, this, &MainWindow::onRenameTag);
+  connect(tagDeleteBtn_, &QPushButton::clicked, this, &MainWindow::onDeleteTag);
+
+  return container;
+}
+
+QWidget* MainWindow::buildDeletionPane() {
+  auto* container = new QWidget(this);
+  auto* layout = new QVBoxLayout(container);
+  layout->setContentsMargins(12, 12, 12, 12);
+  layout->setSpacing(16);
+
+  retainDeletedCheckbox_ = new QCheckBox(tr("删除 MOD 时保留数据记录"), container);
+  layout->addWidget(retainDeletedCheckbox_);
+
+  auto* noteLabel = new QLabel(tr("如果关闭此选项，删除 MOD 时会在数据库中完全移除记录。"), container);
+  noteLabel->setWordWrap(true);
+  layout->addWidget(noteLabel);
+
+  clearDeletedModsBtn_ = new QPushButton(tr("清除已删除MOD数据记录"), container);
+  layout->addWidget(clearDeletedModsBtn_);
+  layout->addStretch(1);
+
   connect(clearDeletedModsBtn_, &QPushButton::clicked, this, &MainWindow::onClearDeletedMods);
 
-  return page;
+  return container;
+}
+
+void MainWindow::refreshBasicSettingsUi() {
+  if (!settingsRepoDirEdit_) {
+    return;
+  }
+
+  {
+    QSignalBlocker blocker(settingsRepoDirEdit_);
+    settingsRepoDirEdit_->setText(QString::fromStdString(settings_.repoDir));
+  }
+
+  if (settingsGameDirEdit_) {
+    QSignalBlocker blocker(settingsGameDirEdit_);
+    settingsGameDirEdit_->setText(QString::fromStdString(settings_.gameDirectory));
+  }
+
+  if (importModeCombo_) {
+    QSignalBlocker blocker(importModeCombo_);
+    const int index = importModeCombo_->findData(static_cast<int>(settings_.importAction));
+    importModeCombo_->setCurrentIndex(index >= 0 ? index : 0);
+  }
+
+  if (autoImportCheckbox_) {
+    QSignalBlocker blocker(autoImportCheckbox_);
+    autoImportCheckbox_->setChecked(settings_.addonsAutoImportEnabled);
+  }
+
+  if (autoImportModeCombo_) {
+    QSignalBlocker blocker(autoImportModeCombo_);
+    const int index = autoImportModeCombo_->findData(static_cast<int>(settings_.addonsAutoImportMethod));
+    autoImportModeCombo_->setCurrentIndex(index >= 0 ? index : 0);
+    autoImportModeCombo_->setEnabled(settings_.addonsAutoImportEnabled);
+  }
+
+  setSettingsStatus({});
+}
+
+void MainWindow::refreshCategoryManagementUi() {
+  if (!categoryTree_ || !repo_) {
+    return;
+  }
+
+  const int previousId = selectedCategoryId();
+  QSignalBlocker blocker(categoryTree_);
+  categoryTree_->clear();
+
+  const auto categories = repo_->listCategories();
+  std::unordered_map<int, std::vector<CategoryRow>> children;
+  std::vector<CategoryRow> roots;
+  for (const auto& cat : categories) {
+    if (cat.parent_id.has_value()) {
+      children[*cat.parent_id].push_back(cat);
+    } else {
+      roots.push_back(cat);
+    }
+  }
+
+  std::function<void(const CategoryRow&, QTreeWidgetItem*)> addItem;
+  addItem = [&](const CategoryRow& cat, QTreeWidgetItem* parent) {
+    auto* item = new QTreeWidgetItem();
+    item->setText(0, QString::fromStdString(cat.name));
+    item->setData(0, Qt::UserRole, cat.id);
+    if (cat.parent_id.has_value()) {
+      item->setData(0, Qt::UserRole + 1, cat.parent_id.value());
+    }
+
+    if (parent) {
+      parent->addChild(item);
+    } else {
+      categoryTree_->addTopLevelItem(item);
+    }
+
+    if (children.count(cat.id)) {
+      for (const auto& child : children[cat.id]) {
+        addItem(child, item);
+      }
+    }
+  };
+
+  for (const auto& root : roots) {
+    addItem(root, nullptr);
+  }
+
+  categoryTree_->expandAll();
+
+  if (previousId > 0) {
+    QTreeWidgetItemIterator it(categoryTree_);
+    while (*it) {
+      if ((*it)->data(0, Qt::UserRole).toInt() == previousId) {
+        categoryTree_->setCurrentItem(*it);
+        break;
+      }
+      ++it;
+    }
+  }
+
+  onCategorySelectionChanged();
+}
+
+void MainWindow::refreshTagManagementUi() {
+  if (!tagGroupList_ || !repo_) {
+    return;
+  }
+
+  const int previousGroup = selectedTagGroupId();
+  QSignalBlocker blocker(tagGroupList_);
+  tagGroupList_->clear();
+
+  const auto groups = repo_->listTagGroups();
+  for (const auto& group : groups) {
+    auto* item = new QListWidgetItem(QString::fromStdString(group.name));
+    item->setData(Qt::UserRole, group.id);
+    tagGroupList_->addItem(item);
+  }
+
+  int rowToSelect = 0;
+  if (previousGroup > 0) {
+    for (int row = 0; row < tagGroupList_->count(); ++row) {
+      if (tagGroupList_->item(row)->data(Qt::UserRole).toInt() == previousGroup) {
+        rowToSelect = row;
+        break;
+      }
+    }
+  }
+
+  if (tagGroupList_->count() > 0) {
+    tagGroupList_->setCurrentRow(rowToSelect);
+  } else {
+    tagGroupList_->setCurrentRow(-1);
+  }
+
+  refreshTagListForGroup(selectedTagGroupId());
+}
+
+void MainWindow::refreshTagListForGroup(int groupId) {
+  if (!tagList_) {
+    return;
+  }
+
+  const int previousTag = selectedTagId();
+  QSignalBlocker blocker(tagList_);
+  tagList_->clear();
+
+  if (groupId > 0 && repo_) {
+    const auto tags = repo_->listTagsInGroup(groupId);
+    for (const auto& tag : tags) {
+      auto* item = new QListWidgetItem(QString::fromStdString(tag.name));
+      item->setData(Qt::UserRole, tag.id);
+      tagList_->addItem(item);
+    }
+
+    if (previousTag > 0) {
+      for (int row = 0; row < tagList_->count(); ++row) {
+        if (tagList_->item(row)->data(Qt::UserRole).toInt() == previousTag) {
+          tagList_->setCurrentRow(row);
+          break;
+        }
+      }
+    } else if (tagList_->count() > 0) {
+      tagList_->setCurrentRow(0);
+    }
+  }
+
+  if (tagList_->count() == 0) {
+    tagList_->setCurrentRow(-1);
+  }
+
+  const bool hasGroup = groupId > 0;
+  if (tagGroupRenameBtn_) tagGroupRenameBtn_->setEnabled(hasGroup);
+  if (tagGroupDeleteBtn_) tagGroupDeleteBtn_->setEnabled(hasGroup);
+  if (tagAddBtn_) tagAddBtn_->setEnabled(hasGroup);
+
+  onTagSelectionChanged(tagList_ ? tagList_->currentRow() : -1);
+}
+
+void MainWindow::refreshDeletionSettingsUi() {
+  if (retainDeletedCheckbox_) {
+    QSignalBlocker blocker(retainDeletedCheckbox_);
+    retainDeletedCheckbox_->setChecked(settings_.retainDataOnDelete);
+  }
+}
+
+void MainWindow::ensureSettingsNavSelection() {
+  if (!settingsNav_ || settingsNav_->count() == 0) {
+    return;
+  }
+  if (settingsNav_->currentRow() < 0) {
+    settingsNav_->setCurrentRow(0);
+  }
+}
+
+void MainWindow::setSettingsStatus(const QString& text, bool isError) {
+  if (!settingsStatusLabel_) {
+    return;
+  }
+  settingsStatusLabel_->setText(text);
+  if (text.isEmpty()) {
+    settingsStatusLabel_->setStyleSheet(QString());
+  } else if (isError) {
+    settingsStatusLabel_->setStyleSheet(QStringLiteral("color: #d9534f;"));
+  } else {
+    settingsStatusLabel_->setStyleSheet(QStringLiteral("color: #198754;"));
+  }
+}
+
+void MainWindow::reinitializeRepository(const Settings& settings) {
+  repoDir_ = QString::fromStdString(settings.repoDir);
+  spdlog::info("Repo DB: {}", settings.repoDbPath);
+
+  auto db = std::make_shared<Db>(settings.repoDbPath);
+  runMigrations(*db);
+  spdlog::info("Schema ready, version {}", migrations::currentSchemaVersion(*db));
+  repo_ = std::make_unique<RepositoryService>(db);
+
+  reloadCategories();
+  reloadRepoSelectorData();
+  loadData();
+}
+
+int MainWindow::selectedCategoryId() const {
+  if (!categoryTree_) {
+    return 0;
+  }
+  if (auto* item = categoryTree_->currentItem()) {
+    return item->data(0, Qt::UserRole).toInt();
+  }
+  return 0;
+}
+
+int MainWindow::selectedTagGroupId() const {
+  if (!tagGroupList_) {
+    return 0;
+  }
+  if (auto* item = tagGroupList_->currentItem()) {
+    return item->data(Qt::UserRole).toInt();
+  }
+  return 0;
+}
+
+int MainWindow::selectedTagId() const {
+  if (!tagList_) {
+    return 0;
+  }
+  if (auto* item = tagList_->currentItem()) {
+    return item->data(Qt::UserRole).toInt();
+  }
+  return 0;
 }
 
 void MainWindow::reloadCategories() {
   categoryNames_.clear();
   categoryParent_.clear();
+  if (filterModel_) {
+    filterModel_->clear();
+  }
 
   auto* allItem = new QStandardItem(tr("全部分类"));
   allItem->setData(0, Qt::UserRole);
@@ -949,6 +1445,12 @@ void MainWindow::reloadRepoSelectorData() {
 }
 
 void MainWindow::switchToSettings() {
+  refreshBasicSettingsUi();
+  refreshCategoryManagementUi();
+  refreshTagManagementUi();
+  refreshDeletionSettingsUi();
+  ensureSettingsNavSelection();
+  setSettingsStatus({});
   stack_->setCurrentIndex(2);
   updateTabButtonState(settingsButton_);
 }
@@ -962,6 +1464,399 @@ void MainWindow::updateTabButtonState(QPushButton* active) {
     button->setStyleSheet(button == active ? "QPushButton { background: #0f4a70; color: white; }"
                                            : "QPushButton { background: #d0e3ec; }");
   }
+}
+
+void MainWindow::onSettingsNavChanged(int row) {
+  if (!settingsStack_) {
+    return;
+  }
+  if (row >= 0 && row < settingsStack_->count()) {
+    settingsStack_->setCurrentIndex(row);
+  }
+  setSettingsStatus({});
+}
+
+void MainWindow::onBrowseRepoDir() {
+  if (!settingsRepoDirEdit_) {
+    return;
+  }
+  const QString current = settingsRepoDirEdit_->text();
+  QString selected = QFileDialog::getExistingDirectory(this, tr("选择仓库目录"), current.isEmpty() ? repoDir_ : current);
+  if (!selected.isEmpty()) {
+    settingsRepoDirEdit_->setText(QDir::cleanPath(selected));
+  }
+}
+
+void MainWindow::onBrowseGameDir() {
+  if (!settingsGameDirEdit_) {
+    return;
+  }
+  const QString current = settingsGameDirEdit_->text();
+  QString selected = QFileDialog::getExistingDirectory(this, tr("选择游戏目录"), current);
+  if (!selected.isEmpty()) {
+    settingsGameDirEdit_->setText(QDir::cleanPath(selected));
+  }
+}
+
+void MainWindow::onImportModeChanged(int /*index*/) {
+  setSettingsStatus({});
+}
+
+void MainWindow::onAutoImportToggled(bool checked) {
+  if (autoImportModeCombo_) {
+    autoImportModeCombo_->setEnabled(checked);
+  }
+  setSettingsStatus({});
+}
+
+void MainWindow::onAutoImportModeChanged(int /*index*/) {
+  setSettingsStatus({});
+}
+
+void MainWindow::onSaveSettings() {
+  try {
+    Settings updated = settings_;
+    const QString appDirPath = QCoreApplication::applicationDirPath();
+    const QString databaseDirPath = QDir(appDirPath).filePath("database");
+
+    if (settingsRepoDirEdit_) {
+      const QString repoPath = QDir::cleanPath(QDir::fromNativeSeparators(settingsRepoDirEdit_->text().trimmed()));
+      if (repoPath.isEmpty()) {
+        setSettingsStatus(tr("仓库目录不能为空"), true);
+        return;
+      }
+      QDir repoDir(repoPath);
+      if (!repoDir.exists()) {
+        if (!repoDir.mkpath(".")) {
+          setSettingsStatus(tr("无法创建仓库目录"), true);
+          return;
+        }
+      }
+      updated.repoDir = repoPath.toStdString();
+      updated.repoDbPath = QDir(repoPath).filePath("repo.db").toStdString();
+    }
+
+    if (settingsGameDirEdit_) {
+      const QString gamePath = QDir::cleanPath(QDir::fromNativeSeparators(settingsGameDirEdit_->text().trimmed()));
+      updated.gameDirectory = gamePath.toStdString();
+    }
+
+    if (importModeCombo_) {
+      updated.importAction = static_cast<ImportAction>(importModeCombo_->currentData().toInt());
+    }
+
+    if (autoImportCheckbox_) {
+      updated.addonsAutoImportEnabled = autoImportCheckbox_->isChecked();
+    }
+
+    if (autoImportModeCombo_) {
+      updated.addonsAutoImportMethod = static_cast<AddonsAutoImportMethod>(autoImportModeCombo_->currentData().toInt());
+    }
+
+    if (retainDeletedCheckbox_) {
+      updated.retainDataOnDelete = retainDeletedCheckbox_->isChecked();
+    }
+
+    QDir dbDir(databaseDirPath);
+    if (!dbDir.exists() && !dbDir.mkpath(".")) {
+      setSettingsStatus(tr("无法创建数据库目录"), true);
+      return;
+    }
+    updated.repoDbPath = QDir(appDirPath).filePath("database/repo.db").toStdString();
+
+    updated.save();
+
+    const bool repoChanged = updated.repoDir != settings_.repoDir;
+    settings_ = updated;
+
+    if (repoChanged) {
+      reinitializeRepository(settings_);
+    } else {
+      reloadCategories();
+      reloadRepoSelectorData();
+      loadData();
+    }
+
+    refreshBasicSettingsUi();
+    refreshCategoryManagementUi();
+    refreshTagManagementUi();
+    refreshDeletionSettingsUi();
+    setSettingsStatus(tr("设置已保存"));
+  } catch (const std::exception& ex) {
+    setSettingsStatus(QString::fromUtf8(ex.what()), true);
+  }
+}
+
+void MainWindow::onCategorySelectionChanged() {
+  const bool hasSelection = selectedCategoryId() > 0;
+  if (categoryAddChildBtn_) categoryAddChildBtn_->setEnabled(hasSelection);
+  if (categoryRenameBtn_) categoryRenameBtn_->setEnabled(hasSelection);
+  if (categoryDeleteBtn_) categoryDeleteBtn_->setEnabled(hasSelection);
+}
+
+void MainWindow::onAddCategoryTopLevel() {
+  if (!repo_) {
+    return;
+  }
+  bool ok = false;
+  const QString name = QInputDialog::getText(this, tr("新增分类"), tr("分类名称"), QLineEdit::Normal, {}, &ok).trimmed();
+  if (!ok || name.isEmpty()) {
+    return;
+  }
+  try {
+    repo_->createCategory(name.toStdString(), std::nullopt);
+    refreshCategoryManagementUi();
+    reloadCategories();
+    loadData();
+  } catch (const std::exception& ex) {
+    QMessageBox::warning(this, tr("创建失败"), QString::fromUtf8(ex.what()));
+  }
+}
+
+void MainWindow::onAddCategoryChild() {
+  if (!repo_) {
+    return;
+  }
+  const int parentId = selectedCategoryId();
+  if (parentId <= 0) {
+    QMessageBox::information(this, tr("提示"), tr("请先选择一个父级分类"));
+    return;
+  }
+  bool ok = false;
+  const QString name = QInputDialog::getText(this, tr("新增子分类"), tr("分类名称"), QLineEdit::Normal, {}, &ok).trimmed();
+  if (!ok || name.isEmpty()) {
+    return;
+  }
+  try {
+    repo_->createCategory(name.toStdString(), parentId);
+    refreshCategoryManagementUi();
+    reloadCategories();
+    loadData();
+  } catch (const std::exception& ex) {
+    QMessageBox::warning(this, tr("创建失败"), QString::fromUtf8(ex.what()));
+  }
+}
+
+void MainWindow::onRenameCategory() {
+  if (!repo_ || !categoryTree_) {
+    return;
+  }
+  auto* item = categoryTree_->currentItem();
+  if (!item) {
+    return;
+  }
+  const int id = item->data(0, Qt::UserRole).toInt();
+  if (id <= 0) {
+    return;
+  }
+  bool ok = false;
+  const QString currentName = item->text(0);
+  const QString name = QInputDialog::getText(this, tr("重命名分类"), tr("分类名称"), QLineEdit::Normal, currentName, &ok).trimmed();
+  if (!ok || name.isEmpty() || name == currentName) {
+    return;
+  }
+  std::optional<int> parentId;
+  const QVariant parentData = item->data(0, Qt::UserRole + 1);
+  if (parentData.isValid()) {
+    parentId = parentData.toInt();
+  }
+  try {
+    repo_->updateCategory(id, name.toStdString(), parentId);
+    refreshCategoryManagementUi();
+    reloadCategories();
+    loadData();
+  } catch (const std::exception& ex) {
+    QMessageBox::warning(this, tr("重命名失败"), QString::fromUtf8(ex.what()));
+  }
+}
+
+void MainWindow::onDeleteCategory() {
+  if (!repo_) {
+    return;
+  }
+  const int id = selectedCategoryId();
+  if (id <= 0) {
+    return;
+  }
+  QTreeWidgetItem* currentItem = categoryTree_ ? categoryTree_->currentItem() : nullptr;
+  const bool hasChildren = currentItem && currentItem->childCount() > 0;
+  const bool isTopLevel = currentItem && !currentItem->data(0, Qt::UserRole + 1).isValid();
+
+  const QString prompt = hasChildren
+                              ? tr("删除该分类将同时删除其所有子分类，并清空相关 MOD 分类信息。是否继续？")
+                              : tr("删除该分类将清空相关 MOD 分类信息。是否继续？");
+  if (QMessageBox::question(this, tr("删除分类"), prompt) != QMessageBox::Yes) {
+    return;
+  }
+
+  if (isTopLevel && hasChildren) {
+    const QString confirmation = tr("这是一级分类，删除后会清空全部子分类及其分类信息。请再次确认是否执行删除。");
+    if (QMessageBox::question(this, tr("再次确认"), confirmation) != QMessageBox::Yes) {
+      return;
+    }
+  }
+
+  try {
+    repo_->deleteCategory(id);
+    refreshCategoryManagementUi();
+    reloadCategories();
+    loadData();
+  } catch (const std::exception& ex) {
+    QMessageBox::warning(this, tr("删除失败"), QString::fromUtf8(ex.what()));
+  }
+}
+
+void MainWindow::onTagGroupSelectionChanged(int row) {
+  Q_UNUSED(row);
+  refreshTagListForGroup(selectedTagGroupId());
+}
+
+void MainWindow::onAddTagGroup() {
+  if (!repo_) {
+    return;
+  }
+  bool ok = false;
+  const QString name = QInputDialog::getText(this, tr("新增标签组"), tr("组名称"), QLineEdit::Normal, {}, &ok).trimmed();
+  if (!ok || name.isEmpty()) {
+    return;
+  }
+  try {
+    repo_->createTagGroup(name.toStdString());
+    refreshTagManagementUi();
+  } catch (const std::exception& ex) {
+    QMessageBox::warning(this, tr("创建失败"), QString::fromUtf8(ex.what()));
+  }
+}
+
+void MainWindow::onRenameTagGroup() {
+  if (!repo_ || !tagGroupList_) {
+    return;
+  }
+  auto* item = tagGroupList_->currentItem();
+  if (!item) {
+    return;
+  }
+  const int groupId = item->data(Qt::UserRole).toInt();
+  if (groupId <= 0) {
+    return;
+  }
+  bool ok = false;
+  const QString currentName = item->text();
+  const QString name = QInputDialog::getText(this, tr("重命名标签组"), tr("组名称"), QLineEdit::Normal, currentName, &ok).trimmed();
+  if (!ok || name.isEmpty() || name == currentName) {
+    return;
+  }
+  try {
+    repo_->renameTagGroup(groupId, name.toStdString());
+    refreshTagManagementUi();
+    loadData();
+  } catch (const std::exception& ex) {
+    QMessageBox::warning(this, tr("重命名失败"), QString::fromUtf8(ex.what()));
+  }
+}
+
+void MainWindow::onDeleteTagGroup() {
+  if (!repo_) {
+    return;
+  }
+  const int groupId = selectedTagGroupId();
+  if (groupId <= 0) {
+    return;
+  }
+  const auto reply = QMessageBox::question(this, tr("删除标签组"), tr("仅当该组没有标签时才能删除，是否继续？"));
+  if (reply != QMessageBox::Yes) {
+    return;
+  }
+  try {
+    if (!repo_->deleteTagGroup(groupId)) {
+      QMessageBox::information(this, tr("无法删除"), tr("该组仍包含标签，请先删除所有标签。"));
+      return;
+    }
+    refreshTagManagementUi();
+    loadData();
+  } catch (const std::exception& ex) {
+    QMessageBox::warning(this, tr("删除失败"), QString::fromUtf8(ex.what()));
+  }
+}
+
+void MainWindow::onAddTag() {
+  if (!repo_) {
+    return;
+  }
+  const int groupId = selectedTagGroupId();
+  if (groupId <= 0) {
+    QMessageBox::information(this, tr("提示"), tr("请先选择标签组"));
+    return;
+  }
+  bool ok = false;
+  const QString name = QInputDialog::getText(this, tr("新增标签"), tr("标签名称"), QLineEdit::Normal, {}, &ok).trimmed();
+  if (!ok || name.isEmpty()) {
+    return;
+  }
+  try {
+    repo_->createTag(groupId, name.toStdString());
+    refreshTagListForGroup(groupId);
+    loadData();
+  } catch (const std::exception& ex) {
+    QMessageBox::warning(this, tr("创建失败"), QString::fromUtf8(ex.what()));
+  }
+}
+
+void MainWindow::onRenameTag() {
+  if (!repo_ || !tagList_) {
+    return;
+  }
+  auto* item = tagList_->currentItem();
+  if (!item) {
+    return;
+  }
+  const int tagId = item->data(Qt::UserRole).toInt();
+  if (tagId <= 0) {
+    return;
+  }
+  bool ok = false;
+  const QString currentName = item->text();
+  const QString name = QInputDialog::getText(this, tr("重命名标签"), tr("标签名称"), QLineEdit::Normal, currentName, &ok).trimmed();
+  if (!ok || name.isEmpty() || name == currentName) {
+    return;
+  }
+  try {
+    repo_->renameTag(tagId, name.toStdString());
+    refreshTagListForGroup(selectedTagGroupId());
+    loadData();
+  } catch (const std::exception& ex) {
+    QMessageBox::warning(this, tr("重命名失败"), QString::fromUtf8(ex.what()));
+  }
+}
+
+void MainWindow::onDeleteTag() {
+  if (!repo_) {
+    return;
+  }
+  const int tagId = selectedTagId();
+  if (tagId <= 0) {
+    return;
+  }
+  const auto reply = QMessageBox::question(this, tr("删除标签"), tr("仅当标签未被 MOD 使用时才能删除，是否继续？"));
+  if (reply != QMessageBox::Yes) {
+    return;
+  }
+  try {
+    if (!repo_->deleteTag(tagId)) {
+      QMessageBox::information(this, tr("无法删除"), tr("仍有 MOD 使用该标签，请先解除绑定。"));
+      return;
+    }
+    refreshTagListForGroup(selectedTagGroupId());
+    loadData();
+  } catch (const std::exception& ex) {
+    QMessageBox::warning(this, tr("删除失败"), QString::fromUtf8(ex.what()));
+  }
+}
+
+void MainWindow::onTagSelectionChanged(int row) {
+  const bool hasSelection = row >= 0 && selectedTagId() > 0;
+  if (tagRenameBtn_) tagRenameBtn_->setEnabled(hasSelection);
+  if (tagDeleteBtn_) tagDeleteBtn_->setEnabled(hasSelection);
 }
 
 void MainWindow::onClearDeletedMods() {

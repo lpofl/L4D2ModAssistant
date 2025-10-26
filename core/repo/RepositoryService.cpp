@@ -126,12 +126,49 @@ void RepositoryService::updateCategory(int id, const std::string& name, std::opt
   categoryDao_->update(id, name, parentId);
 }
 
+void RepositoryService::deleteCategory(int id) {
+  categoryDao_->remove(id);
+}
+
 std::vector<TagGroupRow> RepositoryService::listTagGroups() const {
   return tagDao_->listGroups();
 }
 
+int RepositoryService::createTagGroup(const std::string& name) {
+  const auto groups = tagDao_->listGroups();
+  int nextSort = 10;
+  for (const auto& group : groups) {
+    nextSort = std::max(nextSort, group.sort_order + 10);
+  }
+  return tagDao_->insertGroup(name, nextSort);
+}
+
+void RepositoryService::renameTagGroup(int groupId, const std::string& name) {
+  tagDao_->updateGroup(groupId, name);
+}
+
+bool RepositoryService::deleteTagGroup(int groupId) {
+  return tagDao_->removeGroup(groupId);
+}
+
 std::vector<TagWithGroupRow> RepositoryService::listTags() const {
   return tagDao_->listAllWithGroup();
+}
+
+std::vector<TagRow> RepositoryService::listTagsInGroup(int groupId) const {
+  return tagDao_->listByGroup(groupId);
+}
+
+int RepositoryService::createTag(int groupId, const std::string& name) {
+  return tagDao_->insertTag(groupId, name);
+}
+
+void RepositoryService::renameTag(int tagId, const std::string& name) {
+  tagDao_->updateTag(tagId, name);
+}
+
+bool RepositoryService::deleteTag(int tagId) {
+  return tagDao_->removeTag(tagId);
 }
 
 std::vector<TagWithGroupRow> RepositoryService::listTagsForMod(int modId) const {

@@ -1,106 +1,144 @@
 {
   "_comment": "此配置文件仅用于提供数据库默认初始数据，若已经完成初始化或不熟悉，数据增改请通过应用内设置功能修改。",
-  "categories": {
-    "人物": [
-      "Bill(一代)",
-      "Zoey(一代)",
-      "Louis(一代)",
-      "Francis(一代)",
-      "Nick(二代)",
-      "Rochelle(二代)",
-      "Coach(二代)",
-      "Ellis(二代)"
-    ],
-    "特感": [
-      "Smoker",
-      "Boomer",
-      "Hunter",
-      "Spitter",
-      "Charger",
-      "Jockey",
-      "Tank",
-      "Witch"
-    ],
-    "枪械": [
-      "Uzi/SMG 无消音",
-      "MAC-10 消音冲",
-      "MP5",
-      "一代木喷 Pump Shotgun",
-      "二代铁喷 Chrome Shotgun",
-      "一代连喷 Auto Shotgun",
-      "二代连喷 Combat Shotgun",
-      "M16",
-      "AK47",
-      "SCAR-L",
-      "SG552",
-      "连狙猎枪 Hunting Rifle",
-      "连狙军用 Military Sniper",
-      "鸟狙 Scout",
-      "AWP",
-      "小手枪 Pistol",
-      "马格南 Magnum",
-      "M60",
-      "榴弹 Grenade Launcher"
-    ],
-    "近战": [
-      "平底锅 Frying Pan",
-      "吉他 Guitar",
-      "警棍 Nightstick",
-      "棒球棒 Baseball Bat",
-      "板球棒 Cricket Bat",
-      "高尔夫 Golf Club",
-      "砍刀 Machete",
-      "武士刀 Katana",
-      "撬棍 Crowbar",
-      "消防斧 Fire Axe",
-      "电锯 Chainsaw",
-      "小刀 Knife",
-      "防爆盾 Riot Shield"
-    ],
-    "消耗品": [
-      "燃烧瓶 Molotov",
-      "土制炸弹 Pipebomb",
-      "胆汁瓶 Bile Bomb",
-      "医疗包 Medkit",
-      "除颤器 Defibrillator",
-      "止痛药 Pills",
-      "肾上腺素 Adrenaline"
-    ],
-    "互动道具": [
-      "汽油桶 Gas Can",
-      "煤气罐 Propane Tank",
-      "氧气罐 Oxygen Tank",
-      "烟花盒 Firework Crate",
-      "子弹堆 Ammo Can/Pile",
-      "燃烧弹盒 Incendiary Ammo",
-      "高爆弹盒 Explosive Ammo",
-      "激光瞄准盒 Laser Sight"
-    ],
-    "环境": [
-      "光照",
-      "天空盒",
-      "材质贴图",
-      "粒子特效",
-      "安全屋",
-      "门",
-      "挂画",
-      "血迹效果",
-      "其他"
-    ],
-    "地图": [
-      "官方战役",
-      "社区战役",
-      "生存地图",
-      "对抗地图",
-      "突变模式"
-    ],
-    "界面": [
-      "HUD",
-      "血条",
-      "主菜单 Main Menu",
-      "载入界面",
-      "准星 Crosshair",
-      "提示图标"
-    ]
-  }
+  "categories": [
+    {
+      "code": "01",
+      "name": "求生者",
+      "items": [
+        {"code": "0101", "name": "Bill(一代)"},
+        {"code": "0102", "name": "Zoey(一代)"},
+        {"code": "0103", "name": "Louis(一代)"},
+        {"code": "0104", "name": "Francis(一代)"},
+        {"code": "0105", "name": "Nick(二代)"},
+        {"code": "0106", "name": "Rochelle(二代)"},
+        {"code": "0107", "name": "Coach(二代)"},
+        {"code": "0108", "name": "Ellis(二代)"}
+      ]
+    },
+    {
+      "code": "02",
+      "name": "感染者",
+      "items": [
+        {"code": "0201", "name": "Smoker"},
+        {"code": "0202", "name": "Boomer"},
+        {"code": "0203", "name": "Hunter"},
+        {"code": "0204", "name": "Spitter"},
+        {"code": "0205", "name": "Charger"},
+        {"code": "0206", "name": "Jockey"},
+        {"code": "0207", "name": "Tank"},
+        {"code": "0208", "name": "Witch"},
+        {"code": "0209", "name": "普通丧尸"}
+      ]
+    },
+    {
+      "code": "03",
+      "name": "枪械",
+      "items": [
+        {"code": "0301", "name": "Uzi/SMG 无消音"},
+        {"code": "0302", "name": "MAC-10 消音冲"},
+        {"code": "0303", "name": "MP5"},
+        {"code": "0304", "name": "一代木喷 Pump Shotgun"},
+        {"code": "0305", "name": "二代铁喷 Chrome Shotgun"},
+        {"code": "0306", "name": "一代连喷 Auto Shotgun"},
+        {"code": "0307", "name": "二代连喷 Combat Shotgun"},
+        {"code": "0308", "name": "M16"},
+        {"code": "0309", "name": "AK47"},
+        {"code": "0310", "name": "SCAR-L"},
+        {"code": "0311", "name": "SG552"},
+        {"code": "0312", "name": "连狙猎枪 Hunting Rifle"},
+        {"code": "0313", "name": "连狙军用 Military Sniper"},
+        {"code": "0314", "name": "鸟狙 Scout"},
+        {"code": "0315", "name": "AWP"},
+        {"code": "0316", "name": "小手枪 Pistol"},
+        {"code": "0317", "name": "马格南 Magnum"},
+        {"code": "0318", "name": "M60"},
+        {"code": "0319", "name": "榴弹 Grenade Launcher"}
+      ]
+    },
+    {
+      "code": "04",
+      "name": "近战",
+      "items": [
+        {"code": "0401", "name": "平底锅 Frying Pan"},
+        {"code": "0402", "name": "吉他 Guitar"},
+        {"code": "0403", "name": "警棍 Nightstick"},
+        {"code": "0404", "name": "棒球棒 Baseball Bat"},
+        {"code": "0405", "name": "板球棒 Cricket Bat"},
+        {"code": "0406", "name": "高尔夫 Golf Club"},
+        {"code": "0407", "name": "砍刀 Machete"},
+        {"code": "0408", "name": "武士刀 Katana"},
+        {"code": "0409", "name": "撬棍 Crowbar"},
+        {"code": "0410", "name": "消防斧 Fire Axe"},
+        {"code": "0411", "name": "电锯 Chainsaw"},
+        {"code": "0412", "name": "小刀 Knife"},
+        {"code": "0413", "name": "防爆盾 Riot Shield"}
+      ]
+    },
+    {
+      "code": "05",
+      "name": "消耗品",
+      "items": [
+        {"code": "0501", "name": "燃烧瓶 Molotov"},
+        {"code": "0502", "name": "土制炸弹 Pipebomb"},
+        {"code": "0503", "name": "胆汁瓶 Bile Bomb"},
+        {"code": "0504", "name": "医疗包 Medkit"},
+        {"code": "0505", "name": "除颤器 Defibrillator"},
+        {"code": "0506", "name": "止痛药 Pills"},
+        {"code": "0507", "name": "肾上腺素 Adrenaline"}
+      ]
+    },
+    {
+      "code": "06",
+      "name": "互动道具",
+      "items": [
+        {"code": "0601", "name": "汽油桶 Gas Can"},
+        {"code": "0602", "name": "煤气罐 Propane Tank"},
+        {"code": "0603", "name": "氧气罐 Oxygen Tank"},
+        {"code": "0604", "name": "烟花盒 Firework Crate"},
+        {"code": "0605", "name": "子弹堆 Ammo Can/Pile"},
+        {"code": "0606", "name": "燃烧弹盒 Incendiary Ammo"},
+        {"code": "0607", "name": "高爆弹盒 Explosive Ammo"},
+        {"code": "0608", "name": "激光瞄准盒 Laser Sight"}
+      ]
+    },
+    {
+      "code": "07",
+      "name": "环境",
+      "items": [
+        {"code": "0700", "name": "其他"},
+        {"code": "0701", "name": "光照"},
+        {"code": "0702", "name": "天空盒"},
+        {"code": "0703", "name": "材质贴图"},
+        {"code": "0704", "name": "粒子特效"},
+        {"code": "0705", "name": "安全屋"},
+        {"code": "0706", "name": "门"},
+        {"code": "0707", "name": "挂画"},
+        {"code": "0708", "name": "血迹效果"}
+      ]
+    },
+    {
+      "code": "08",
+      "name": "地图",
+      "items": [
+        {"code": "0801", "name": "官方战役"},
+        {"code": "0802", "name": "社区战役"},
+        {"code": "0803", "name": "生存地图"},
+        {"code": "0804", "name": "对抗地图"},
+        {"code": "0805", "name": "突变模式"}
+      ]
+    },
+    {
+      "code": "09",
+      "name": "界面",
+      "items": [
+        {"code": "0900", "name": "其他"},
+        {"code": "0901", "name": "HUD"},
+        {"code": "0902", "name": "血条"},
+        {"code": "0903", "name": "主菜单 Main Menu"},
+        {"code": "0904", "name": "载入界面"},
+        {"code": "0905", "name": "准星 Crosshair"},
+        {"code": "0906", "name": "提示图标"}
+      ]
+    }
+  ]
 }

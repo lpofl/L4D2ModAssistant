@@ -39,6 +39,10 @@ public:
 
   /// 新建 TAG 组，可指定排序权重
   int insertGroup(const std::string& name, int sortOrder);
+  /// 更新 TAG 组名称
+  void updateGroup(int groupId, const std::string& name);
+  /// 删除 TAG 组（组内必须无标签）
+  bool removeGroup(int groupId);
   /// 保证 TAG 组存在，不存在则创建
   int ensureGroupId(const std::string& name);
   /// 按 sort_order 列表返回所有 TAG 组
@@ -46,6 +50,8 @@ public:
 
   /// 在指定组下新增 TAG
   int insertTag(int groupId, const std::string& name);
+  /// 更新 TAG 名称
+  void updateTag(int tagId, const std::string& name);
   /// 确保指定组内的 TAG 存在，返回 ID
   int ensureTagId(int groupId, const std::string& name);
   /// 获取某个组下的全部 TAG
@@ -56,6 +62,8 @@ public:
   std::vector<TagWithGroupRow> listByMod(int modId) const;
   /// 删除未被引用的 TAG
   void deleteUnused(int tagId);
+  /// 删除 TAG（不可被引用）
+  bool removeTag(int tagId);
 
   /// 清空 MOD 的 TAG 映射
   void clearTagsForMod(int modId);

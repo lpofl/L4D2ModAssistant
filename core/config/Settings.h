@@ -12,8 +12,9 @@ enum class ImportAction {
 };
 
 enum class AddonsAutoImportMethod {
+  Cut,
   Copy,
-  Move
+  Link
 };
 
 struct Settings {
@@ -25,8 +26,8 @@ struct Settings {
   ImportAction importAction{ImportAction::Cut}; // Default: Cut
   bool addonsAutoImportEnabled{false};
   AddonsAutoImportMethod addonsAutoImportMethod{AddonsAutoImportMethod::Copy}; // Default: Copy
-  int combinerMemoryWarningMb{1024}; // Default: 1024 MB
-  bool retainDataOnDelete{false}; // Default: false
+  int combinerMemoryWarningMb{2048}; // Default: 2048 MB
+  bool retainDataOnDelete{true}; // Default: true
 
   static Settings loadOrCreate();
   void save() const;

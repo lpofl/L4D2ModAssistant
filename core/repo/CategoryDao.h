@@ -30,6 +30,8 @@ public:
   std::vector<CategoryRow> listAll() const;// 常量成员函数，不修改成员变量
   /// 按主键查询单条分类记录
   std::optional<CategoryRow> findById(int id) const;
+  /// 删除分类，递归清空全部子分类并清除相关 MOD 引用
+  void remove(int id);
 
 private:
   std::shared_ptr<Db> db_;

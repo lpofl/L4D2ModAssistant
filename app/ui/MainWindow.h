@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "core/config/Settings.h"
 #include "core/repo/RepositoryService.h"
 
 class QStackedWidget;
@@ -15,8 +16,14 @@ class QTableWidget;
 class QPushButton;
 class QLabel;
 class QTextEdit;
+class QListWidget;
+class QTreeWidget;
+class QListWidgetItem;
 
 class QCheckBox;
+class QTreeWidgetItem;
+class QFrame;
+class QScrollArea;
 
 class QSortFilterProxyModel;
 class QStandardItemModel;
@@ -53,6 +60,26 @@ private slots:
 
   // Settings page slots
   void onClearDeletedMods();
+  void onSettingsNavChanged(int row);
+  void onBrowseRepoDir();
+  void onBrowseGameDir();
+  void onImportModeChanged(int index);
+  void onAutoImportToggled(bool checked);
+  void onAutoImportModeChanged(int index);
+  void onSaveSettings();
+  void onCategorySelectionChanged();
+  void onAddCategoryTopLevel();
+  void onAddCategoryChild();
+  void onRenameCategory();
+  void onDeleteCategory();
+  void onTagGroupSelectionChanged(int row);
+  void onAddTagGroup();
+  void onRenameTagGroup();
+  void onDeleteTagGroup();
+  void onAddTag();
+  void onRenameTag();
+  void onDeleteTag();
+  void onTagSelectionChanged(int row);
 
 private:
   void setupUi();
@@ -60,6 +87,10 @@ private:
   QWidget* buildRepositoryPage();
   QWidget* buildSelectorPage();
   QWidget* buildSettingsPage();
+  QWidget* buildBasicSettingsPane();
+  QWidget* buildCategoryManagementPane();
+  QWidget* buildTagManagementPane();
+  QWidget* buildDeletionPane();
   void reloadCategories();
   void reloadTags();
   void reloadAuthors();
@@ -75,6 +106,17 @@ private:
                            const QString& tagSeparator) const;
   bool categoryMatchesFilter(int modCategoryId, int filterCategoryId) const;
   std::vector<TagDescriptor> tagsForMod(int modId) const;
+  void refreshBasicSettingsUi();
+  void refreshCategoryManagementUi();
+  void refreshTagManagementUi();
+  void refreshTagListForGroup(int groupId);
+  void refreshDeletionSettingsUi();
+  void ensureSettingsNavSelection();
+  void setSettingsStatus(const QString& text, bool isError = false);
+  void reinitializeRepository(const Settings& settings);
+  int selectedCategoryId() const;
+  int selectedTagGroupId() const;
+  int selectedTagId() const;
   void updateTabButtonState(QPushButton* active);
   QString detectL4D2GameDirectory() const; // New helper method
 
@@ -112,6 +154,34 @@ private:
   QLabel* strategyInfoLabel_{};
 
   // Settings page widgets
+  QListWidget* settingsNav_{};
+  QStackedWidget* settingsStack_{};
+  QLineEdit* settingsRepoDirEdit_{};
+  QPushButton* settingsRepoBrowseBtn_{};
+  QLineEdit* settingsGameDirEdit_{};
+  QPushButton* settingsGameDirBrowseBtn_{};
+  QComboBox* importModeCombo_{};
+  QCheckBox* autoImportCheckbox_{};
+  QComboBox* autoImportModeCombo_{};
+  QPushButton* saveSettingsBtn_{};
+  QLabel* settingsStatusLabel_{};
+
+  QTreeWidget* categoryTree_{};
+  QPushButton* categoryAddRootBtn_{};
+  QPushButton* categoryAddChildBtn_{};
+  QPushButton* categoryRenameBtn_{};
+  QPushButton* categoryDeleteBtn_{};
+
+  QListWidget* tagGroupList_{};
+  QListWidget* tagList_{};
+  QPushButton* tagGroupAddBtn_{};
+  QPushButton* tagGroupRenameBtn_{};
+  QPushButton* tagGroupDeleteBtn_{};
+  QPushButton* tagAddBtn_{};
+  QPushButton* tagRenameBtn_{};
+  QPushButton* tagDeleteBtn_{};
+
+  QCheckBox* retainDeletedCheckbox_{};
   QPushButton* clearDeletedModsBtn_{};
 
   // Data cache
@@ -128,4 +198,6 @@ private:
   // Selector filter model
   QSortFilterProxyModel* repoSelectorProxyModel_{};
   QStandardItemModel* repoSelectorFilterModel_{};
+
+  Settings settings_{};
 };

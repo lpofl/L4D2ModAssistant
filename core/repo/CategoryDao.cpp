@@ -53,3 +53,38 @@ std::optional<CategoryRow> CategoryDao::findById(int id) const {
   row.name = stmt.getText(2);
   return row;
 }
+
+void CategoryDao::remove(int id) {
+  Db::Tx tx(*db_);
+
+  // Gather target category and all descendants.
+  std::vector<int> pending{ id };
+  std::vector<int> orderedIds; // parent before children
+  while (!pending.empty()) {
+    const int current = pending.back();
+    pending.pop_back();
+    orderedIds.push_back(current);
+
+    Stmt children(*db_, "SELECT id FROM categories WHERE parent_id = ?;");
+    children.bind(1, current);
+    while (children.step()) {
+      pending.push_back(children.getInt(0));
+    }
+  }
+
+  // Clear category references on mods for every category in the subtree.
+  for (int catId : orderedIds) {
+    Stmt clearModRef(*db_, "UPDATE mods SET category_id = NULL WHERE category_id = ?;");
+    clearModRef.bind(1, catId);
+    clearModRef.step();
+  }
+
+  // Delete categories starting from leaves.
+  for (auto it = orderedIds.rbegin(); it != orderedIds.rend(); ++it) {
+    Stmt del(*db_, "DELETE FROM categories WHERE id = ?;");
+    del.bind(1, *it);
+    del.step();
+  }
+
+  tx.commit();
+}

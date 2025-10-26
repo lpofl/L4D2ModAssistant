@@ -48,10 +48,18 @@ public:
   std::vector<CategoryRow> listCategories() const;
   int createCategory(const std::string& name, std::optional<int> parentId);
   void updateCategory(int id, const std::string& name, std::optional<int> parentId);
+  void deleteCategory(int id);
 
   /// Tag queries.
   std::vector<TagGroupRow> listTagGroups() const;
+  int createTagGroup(const std::string& name);
+  void renameTagGroup(int groupId, const std::string& name);
+  bool deleteTagGroup(int groupId);
   std::vector<TagWithGroupRow> listTags() const;
+  std::vector<TagRow> listTagsInGroup(int groupId) const;
+  int createTag(int groupId, const std::string& name);
+  void renameTag(int tagId, const std::string& name);
+  bool deleteTag(int tagId);
   std::vector<TagWithGroupRow> listTagsForMod(int modId) const;
 
   /// Relation maintenance.
