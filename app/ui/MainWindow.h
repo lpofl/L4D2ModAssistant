@@ -44,6 +44,9 @@ private slots:
   void onFilterChanged();
   void onFilterAttributeChanged(const QString& attribute);
   void onFilterValueTextChanged(const QString& text);
+  void onSelectorFilterChanged();
+  void onSelectorFilterAttributeChanged(const QString& attribute);
+  void onSelectorFilterValueTextChanged(const QString& text);
   void onCurrentRowChanged(int currentRow, int currentColumn, int previousRow, int previousColumn);
   void switchToRepository();
   void switchToSelector();
@@ -99,9 +102,21 @@ private:
   void reloadAuthors();
   void reloadRatings();
   void reloadRepoSelectorData();
+  void applySelectorFilter();
+  void populateCategoryFilterModel(QStandardItemModel* model, bool updateCache);
+  void populateTagFilterModel(QStandardItemModel* model) const;
+  void populateAuthorFilterModel(QStandardItemModel* model) const;
+  void populateRatingFilterModel(QStandardItemModel* model) const;
   void loadData();
   void populateTable();
   void updateDetailForMod(int modId);
+  bool modMatchesFilter(const ModRow& mod,
+                        const QString& attribute,
+                        int filterId,
+                        const QString& filterValue) const;
+  int filterIdForCombo(const QComboBox* combo,
+                       const QSortFilterProxyModel* proxy,
+                       const QStandardItemModel* model) const;
   QString categoryNameFor(int categoryId) const;
   QString tagsTextForMod(int modId);
   QString formatTagSummary(const std::vector<TagWithGroupRow>& rows,
@@ -149,8 +164,8 @@ private:
   // Selector page widgets
   QTableWidget* gameDirTable_{};
   QTableWidget* repoTable_{};
-  QComboBox* gameDirCategoryFilter_{};
-  QComboBox* repoCategoryFilter_{};
+  QComboBox* selectorFilterAttribute_{};
+  QComboBox* selectorFilterValue_{};
   QPushButton* configureStrategyBtn_{};
   QPushButton* randomizeBtn_{};
   QPushButton* saveCombinationBtn_{};
@@ -202,8 +217,8 @@ private:
   QStandardItemModel* filterModel_{};
 
   // Selector filter model
-  QSortFilterProxyModel* repoSelectorProxyModel_{};
-  QStandardItemModel* repoSelectorFilterModel_{};
+  QSortFilterProxyModel* selectorProxyModel_{};
+  QStandardItemModel* selectorFilterModel_{};
 
   Settings settings_{};
   bool suppressCategoryItemSignals_ = false;
