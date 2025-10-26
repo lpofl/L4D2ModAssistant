@@ -72,6 +72,9 @@ private slots:
   void onAddCategoryChild();
   void onRenameCategory();
   void onDeleteCategory();
+  void onCategoryItemChanged(QTreeWidgetItem* item, int column);
+  void onMoveCategoryUp();
+  void onMoveCategoryDown();
   void onTagGroupSelectionChanged(int row);
   void onAddTagGroup();
   void onRenameTagGroup();
@@ -115,6 +118,7 @@ private:
   void setSettingsStatus(const QString& text, bool isError = false);
   void reinitializeRepository(const Settings& settings);
   int selectedCategoryId() const;
+  void adjustCategoryOrder(int direction);
   int selectedTagGroupId() const;
   int selectedTagId() const;
   void updateTabButtonState(QPushButton* active);
@@ -171,6 +175,8 @@ private:
   QPushButton* categoryAddChildBtn_{};
   QPushButton* categoryRenameBtn_{};
   QPushButton* categoryDeleteBtn_{};
+  QPushButton* categoryMoveUpBtn_{};
+  QPushButton* categoryMoveDownBtn_{};
 
   QListWidget* tagGroupList_{};
   QListWidget* tagList_{};
@@ -200,4 +206,5 @@ private:
   QStandardItemModel* repoSelectorFilterModel_{};
 
   Settings settings_{};
+  bool suppressCategoryItemSignals_ = false;
 };

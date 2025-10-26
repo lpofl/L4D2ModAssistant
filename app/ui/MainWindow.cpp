@@ -531,8 +531,12 @@ QWidget* MainWindow::buildCategoryManagementPane() {
   layout->setSpacing(12);
 
   categoryTree_ = new QTreeWidget(container);
-  categoryTree_->setHeaderHidden(true);
+  categoryTree_->setColumnCount(2);
+  categoryTree_->setHeaderLabels({tr("分类"), tr("优先级")});
+  categoryTree_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+  categoryTree_->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
   categoryTree_->setSelectionMode(QAbstractItemView::SingleSelection);
+  categoryTree_->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed | QAbstractItemView::SelectedClicked);
   layout->addWidget(categoryTree_, 1);
 
   auto* buttonRow = new QHBoxLayout();
@@ -542,18 +546,25 @@ QWidget* MainWindow::buildCategoryManagementPane() {
   categoryAddChildBtn_ = new QPushButton(tr("新增子分类"), container);
   categoryRenameBtn_ = new QPushButton(tr("重命名"), container);
   categoryDeleteBtn_ = new QPushButton(tr("删除"), container);
+  categoryMoveUpBtn_ = new QPushButton(tr("上升"), container);
+  categoryMoveDownBtn_ = new QPushButton(tr("下降"), container);
   buttonRow->addWidget(categoryAddRootBtn_);
   buttonRow->addWidget(categoryAddChildBtn_);
   buttonRow->addWidget(categoryRenameBtn_);
   buttonRow->addWidget(categoryDeleteBtn_);
+  buttonRow->addWidget(categoryMoveUpBtn_);
+  buttonRow->addWidget(categoryMoveDownBtn_);
   buttonRow->addStretch(1);
   layout->addLayout(buttonRow);
 
   connect(categoryTree_, &QTreeWidget::itemSelectionChanged, this, &MainWindow::onCategorySelectionChanged);
+  connect(categoryTree_, &QTreeWidget::itemChanged, this, &MainWindow::onCategoryItemChanged);
   connect(categoryAddRootBtn_, &QPushButton::clicked, this, &MainWindow::onAddCategoryTopLevel);
   connect(categoryAddChildBtn_, &QPushButton::clicked, this, &MainWindow::onAddCategoryChild);
   connect(categoryRenameBtn_, &QPushButton::clicked, this, &MainWindow::onRenameCategory);
   connect(categoryDeleteBtn_, &QPushButton::clicked, this, &MainWindow::onDeleteCategory);
+  connect(categoryMoveUpBtn_, &QPushButton::clicked, this, &MainWindow::onMoveCategoryUp);
+  connect(categoryMoveDownBtn_, &QPushButton::clicked, this, &MainWindow::onMoveCategoryDown);
 
   return container;
 }
@@ -682,6 +693,7 @@ void MainWindow::refreshCategoryManagementUi() {
 
   const int previousId = selectedCategoryId();
   QSignalBlocker blocker(categoryTree_);
+  suppressCategoryItemSignals_ = true;
   categoryTree_->clear();
 
   const auto categories = repo_->listCategories();
@@ -695,14 +707,32 @@ void MainWindow::refreshCategoryManagementUi() {
     }
   }
 
+  const auto compare = [](const CategoryRow& a, const CategoryRow& b) {
+    if (a.priority != b.priority) return a.priority < b.priority;
+    if (a.name != b.name) return a.name < b.name;
+    return a.id < b.id;
+  };
+
+  std::sort(roots.begin(), roots.end(), compare);
+  for (auto& entry : children) {
+    auto& bucket = entry.second;
+    std::sort(bucket.begin(), bucket.end(), compare);
+  }
+
   std::function<void(const CategoryRow&, QTreeWidgetItem*)> addItem;
   addItem = [&](const CategoryRow& cat, QTreeWidgetItem* parent) {
     auto* item = new QTreeWidgetItem();
-    item->setText(0, QString::fromStdString(cat.name));
+    const QString name = QString::fromStdString(cat.name);
+    item->setText(0, name);
+    item->setText(1, QString::number(cat.priority));
     item->setData(0, Qt::UserRole, cat.id);
     if (cat.parent_id.has_value()) {
       item->setData(0, Qt::UserRole + 1, cat.parent_id.value());
     }
+    item->setData(0, Qt::UserRole + 2, name);
+    item->setData(1, Qt::UserRole, cat.priority);
+    item->setFlags(item->flags() | Qt::ItemIsEditable);
+    item->setTextAlignment(1, Qt::AlignRight | Qt::AlignVCenter);
 
     if (parent) {
       parent->addChild(item);
@@ -710,8 +740,8 @@ void MainWindow::refreshCategoryManagementUi() {
       categoryTree_->addTopLevelItem(item);
     }
 
-    if (children.count(cat.id)) {
-      for (const auto& child : children[cat.id]) {
+    if (const auto it = children.find(cat.id); it != children.end()) {
+      for (const auto& child : it->second) {
         addItem(child, item);
       }
     }
@@ -722,6 +752,7 @@ void MainWindow::refreshCategoryManagementUi() {
   }
 
   categoryTree_->expandAll();
+  suppressCategoryItemSignals_ = false;
 
   if (previousId > 0) {
     QTreeWidgetItemIterator it(categoryTree_);
@@ -855,6 +886,9 @@ void MainWindow::reinitializeRepository(const Settings& settings) {
   reloadCategories();
   reloadRepoSelectorData();
   loadData();
+
+  // 初始化时主动触发一次过滤器刷新，确保搜索框保持空白以显示占位提示
+  onFilterAttributeChanged(filterAttribute_->currentText());
 }
 
 int MainWindow::selectedCategoryId() const {
@@ -894,9 +928,11 @@ void MainWindow::reloadCategories() {
     filterModel_->clear();
   }
 
-  auto* allItem = new QStandardItem(tr("全部分类"));
-  allItem->setData(0, Qt::UserRole);
-  filterModel_->appendRow(allItem);
+  // 先插入“未分类”项，便于用户快速筛查没有分类的 MOD
+  constexpr int kUncategorizedCategoryId = -1;
+  auto* uncategorizedItem = new QStandardItem(tr("未分类"));
+  uncategorizedItem->setData(kUncategorizedCategoryId, Qt::UserRole);
+  filterModel_->appendRow(uncategorizedItem);
 
   const auto categories = repo_->listCategories();
   std::vector<CategoryRow> topLevel;
@@ -913,13 +949,25 @@ void MainWindow::reloadCategories() {
     }
   }
 
+  const auto compare = [](const CategoryRow& a, const CategoryRow& b) {
+    if (a.priority != b.priority) return a.priority < b.priority;
+    if (a.name != b.name) return a.name < b.name;
+    return a.id < b.id;
+  };
+  std::sort(topLevel.begin(), topLevel.end(), compare);
+  for (auto& entry : children) {
+    auto& bucket = entry.second;
+    std::sort(bucket.begin(), bucket.end(), compare);
+  }
+
   for (const auto& parent : topLevel) {
     auto* parentItem = new QStandardItem(QString::fromStdString(parent.name));
     parentItem->setData(parent.id, Qt::UserRole);
     filterModel_->appendRow(parentItem);
 
-    if (children.count(parent.id)) {
-      for (const auto& child : children.at(parent.id)) {
+    const auto childIt = children.find(parent.id);
+    if (childIt != children.end()) {
+      for (const auto& child : childIt->second) {
         auto* childItem = new QStandardItem("  " + QString::fromStdString(child.name));
         childItem->setData(child.id, Qt::UserRole);
         filterModel_->appendRow(childItem);
@@ -962,7 +1010,12 @@ void MainWindow::populateTable() {
     }
 
     if (filterAttribute == tr("分类")) {
-      if (filterId > 0 && !categoryMatchesFilter(mod.category_id, filterId)) {
+      constexpr int kUncategorizedCategoryId = -1;
+      if (filterId == kUncategorizedCategoryId) {
+        if (mod.category_id != 0) {
+          continue;
+        }
+      } else if (filterId > 0 && !categoryMatchesFilter(mod.category_id, filterId)) {
         continue;
       }
     } else if (filterAttribute == tr("名称")) {
@@ -971,8 +1024,13 @@ void MainWindow::populateTable() {
         continue;
       }
     } else if (filterAttribute == tr("标签")) {
-      if (filterId > 0) {
-        const auto& modTags = modTagsCache_[mod.id];
+      constexpr int kUntaggedTagId = -1;
+      const auto& modTags = modTagsCache_[mod.id];
+      if (filterId == kUntaggedTagId) {
+        if (!modTags.empty()) {
+          continue;
+        }
+      } else if (filterId > 0) {
         const auto it = std::find_if(modTags.begin(), modTags.end(), [filterId](const TagWithGroupRow& tag) {
           return tag.id == filterId;
         });
@@ -981,8 +1039,9 @@ void MainWindow::populateTable() {
         }
       }
     } else if (filterAttribute == tr("作者")) {
-      if (filterValue != tr("全部作者") && !filterValue.isEmpty()) {
-        if (QString::fromStdString(mod.author) != filterValue) {
+      const QString authorFilter = filterValue.trimmed();
+      if (!authorFilter.isEmpty()) {
+        if (QString::fromStdString(mod.author) != authorFilter) {
           continue;
         }
       }
@@ -1118,6 +1177,9 @@ QString MainWindow::categoryNameFor(int categoryId) const {
 }
 
 bool MainWindow::categoryMatchesFilter(int modCategoryId, int filterCategoryId) const {
+  if (filterCategoryId == -1) {
+    return modCategoryId == 0;
+  }
   if (filterCategoryId <= 0) {
     return true;
   }
@@ -1289,18 +1351,15 @@ void MainWindow::onFilterAttributeChanged(const QString& attribute) {
   // Explicitly reset the model to force a refresh
   filterValue_->setModel(nullptr); // Temporarily unset the model
   filterValue_->setModel(proxyModel_); // Set it back
+  filterValue_->setEditText(QString()); // 清空输入框以展示占位提示
+  filterValue_->setCurrentIndex(-1); // 重置选中项
 
   filterValue_->blockSignals(false); // Unblock signals here
-  filterValue_->setCurrentIndex(attribute == tr("名称") ? -1 : 0); // Set index after model is populated
 
   onFilterChanged(); // Trigger filter update
 }
 
 void MainWindow::reloadRatings() {
-  auto* allItem = new QStandardItem(tr("全部评分"));
-  allItem->setData(0, Qt::UserRole);
-  filterModel_->appendRow(allItem);
-
   for (int i = 5; i >= 1; --i) {
     auto* item = new QStandardItem(tr("%1 星").arg(i));
     item->setData(i, Qt::UserRole);
@@ -1313,16 +1372,14 @@ void MainWindow::reloadRatings() {
 }
 
 void MainWindow::reloadAuthors() {
-  auto* allItem = new QStandardItem(tr("全部作者"));
-  allItem->setData("", Qt::UserRole);
-  filterModel_->appendRow(allItem);
-
   QSet<QString> authors;
   for (const auto& mod : mods_) {
     authors.insert(QString::fromStdString(mod.author));
   }
 
-  for (const auto& author : authors) {
+  QStringList authorList(authors.begin(), authors.end());
+  authorList.sort(Qt::CaseInsensitive);
+  for (const auto& author : authorList) {
     auto* authorItem = new QStandardItem(author);
     authorItem->setData(author, Qt::UserRole);
     filterModel_->appendRow(authorItem);
@@ -1330,22 +1387,57 @@ void MainWindow::reloadAuthors() {
 }
 
 void MainWindow::reloadTags() {
-  auto* allItem = new QStandardItem(tr("全部标签"));
-  allItem->setData(0, Qt::UserRole);
-  filterModel_->appendRow(allItem);
+  // “未分类”用于筛选没有打标签的 MOD
+  constexpr int kUntaggedTagId = -1;
+  auto* untaggedItem = new QStandardItem(tr("未分类"));
+  untaggedItem->setData(kUntaggedTagId, Qt::UserRole);
+  filterModel_->appendRow(untaggedItem);
 
   const auto tags = repo_->listTags();
-  QMap<QString, QList<TagWithGroupRow>> groupedTags;
+  struct GroupBucket {
+    int id = 0;
+    QString name;
+    int priority = 0;
+    std::vector<TagWithGroupRow> tags;
+  };
+
+  std::unordered_map<int, GroupBucket> groupedTags;
   for (const auto& tag : tags) {
-    groupedTags[QString::fromStdString(tag.group_name)].append(tag);
+    auto& bucket = groupedTags[tag.group_id];
+    if (bucket.tags.empty()) {
+      bucket.id = tag.group_id;
+      bucket.name = QString::fromStdString(tag.group_name);
+      bucket.priority = tag.group_priority;
+    }
+    bucket.tags.push_back(tag);
   }
 
-  for (auto it = groupedTags.constBegin(); it != groupedTags.constEnd(); ++it) {
-    auto* groupItem = new QStandardItem(it.key());
+  auto compareGroup = [](const GroupBucket& a, const GroupBucket& b) {
+    if (a.priority != b.priority) return a.priority < b.priority;
+    if (a.name != b.name) return a.name < b.name;
+    return a.id < b.id;
+  };
+  auto compareTag = [](const TagWithGroupRow& a, const TagWithGroupRow& b) {
+    if (a.priority != b.priority) return a.priority < b.priority;
+    if (a.name != b.name) return a.name < b.name;
+    return a.id < b.id;
+  };
+
+  std::vector<GroupBucket> orderedGroups;
+  orderedGroups.reserve(groupedTags.size());
+  for (auto& entry : groupedTags) {
+    auto& bucket = entry.second;
+    std::sort(bucket.tags.begin(), bucket.tags.end(), compareTag);
+    orderedGroups.push_back(std::move(bucket));
+  }
+  std::sort(orderedGroups.begin(), orderedGroups.end(), compareGroup);
+
+  for (const auto& group : orderedGroups) {
+    auto* groupItem = new QStandardItem(group.name);
     groupItem->setFlags(groupItem->flags() & ~Qt::ItemIsSelectable);
     filterModel_->appendRow(groupItem);
 
-    for (const auto& tag : it.value()) {
+    for (const auto& tag : group.tags) {
       auto* tagItem = new QStandardItem("  " + QString::fromStdString(tag.name));
       tagItem->setData(tag.id, Qt::UserRole);
       filterModel_->appendRow(tagItem);
@@ -1398,9 +1490,10 @@ void MainWindow::switchToSelector() {
 void MainWindow::reloadRepoSelectorData() {
   // Populate categories
   repoSelectorFilterModel_->clear();
-  auto* allItem = new QStandardItem(tr("全部分类"));
-  allItem->setData(0, Qt::UserRole);
-  repoSelectorFilterModel_->appendRow(allItem);
+  constexpr int kUncategorizedCategoryId = -1;
+  auto* uncategorizedItem = new QStandardItem(tr("未分类"));
+  uncategorizedItem->setData(kUncategorizedCategoryId, Qt::UserRole);
+  repoSelectorFilterModel_->appendRow(uncategorizedItem);
 
   const auto categories = repo_->listCategories();
   std::vector<CategoryRow> topLevel;
@@ -1414,13 +1507,25 @@ void MainWindow::reloadRepoSelectorData() {
     }
   }
 
+  const auto compare = [](const CategoryRow& a, const CategoryRow& b) {
+    if (a.priority != b.priority) return a.priority < b.priority;
+    if (a.name != b.name) return a.name < b.name;
+    return a.id < b.id;
+  };
+  std::sort(topLevel.begin(), topLevel.end(), compare);
+  for (auto& entry : children) {
+    auto& bucket = entry.second;
+    std::sort(bucket.begin(), bucket.end(), compare);
+  }
+
   for (const auto& parent : topLevel) {
     auto* parentItem = new QStandardItem(QString::fromStdString(parent.name));
     parentItem->setData(parent.id, Qt::UserRole);
     repoSelectorFilterModel_->appendRow(parentItem);
 
-    if (children.count(parent.id)) {
-      for (const auto& child : children.at(parent.id)) {
+    const auto childIt = children.find(parent.id);
+    if (childIt != children.end()) {
+      for (const auto& child : childIt->second) {
         auto* childItem = new QStandardItem("  " + QString::fromStdString(child.name));
         childItem->setData(child.id, Qt::UserRole);
         repoSelectorFilterModel_->appendRow(childItem);
@@ -1592,6 +1697,140 @@ void MainWindow::onCategorySelectionChanged() {
   if (categoryAddChildBtn_) categoryAddChildBtn_->setEnabled(hasSelection);
   if (categoryRenameBtn_) categoryRenameBtn_->setEnabled(hasSelection);
   if (categoryDeleteBtn_) categoryDeleteBtn_->setEnabled(hasSelection);
+
+  bool canMoveUp = false;
+  bool canMoveDown = false;
+  if (hasSelection && categoryTree_) {
+    if (auto* item = categoryTree_->currentItem()) {
+      QTreeWidgetItem* parent = item->parent();
+      int index = parent ? parent->indexOfChild(item) : categoryTree_->indexOfTopLevelItem(item);
+      int siblingCount = parent ? parent->childCount() : categoryTree_->topLevelItemCount();
+      if (index >= 0) {
+        canMoveUp = index > 0;
+        canMoveDown = index + 1 < siblingCount;
+      }
+    }
+  }
+  if (categoryMoveUpBtn_) categoryMoveUpBtn_->setEnabled(canMoveUp);
+  if (categoryMoveDownBtn_) categoryMoveDownBtn_->setEnabled(canMoveDown);
+}
+
+void MainWindow::onCategoryItemChanged(QTreeWidgetItem* item, int column) {
+  if (suppressCategoryItemSignals_ || !repo_ || !item) {
+    return;
+  }
+  const int id = item->data(0, Qt::UserRole).toInt();
+  if (id <= 0) {
+    return;
+  }
+
+  std::optional<int> parentId;
+  const QVariant parentData = item->data(0, Qt::UserRole + 1);
+  if (parentData.isValid()) {
+    parentId = parentData.toInt();
+  }
+  const QString originalName = item->data(0, Qt::UserRole + 2).toString();
+  const int originalPriority = item->data(1, Qt::UserRole).toInt();
+
+  auto restoreName = [&]() {
+    suppressCategoryItemSignals_ = true;
+    item->setText(0, originalName);
+    suppressCategoryItemSignals_ = false;
+  };
+  auto restorePriority = [&]() {
+    suppressCategoryItemSignals_ = true;
+    item->setText(1, QString::number(originalPriority));
+    suppressCategoryItemSignals_ = false;
+  };
+
+  if (column == 0) {
+    const QString newName = item->text(0).trimmed();
+    if (newName.isEmpty()) {
+      restoreName();
+      return;
+    }
+    if (newName == originalName) {
+      item->setText(0, originalName);
+      return;
+    }
+    try {
+      repo_->updateCategory(id, newName.toStdString(), parentId, std::nullopt);
+      refreshCategoryManagementUi();
+      reloadCategories();
+      loadData();
+    } catch (const std::exception& ex) {
+      restoreName();
+      QMessageBox::warning(this, tr("更新失败"), QString::fromUtf8(ex.what()));
+    }
+  } else if (column == 1) {
+    bool ok = false;
+    const QString textValue = item->text(1).trimmed();
+    const int newPriority = textValue.toInt(&ok);
+    if (!ok || newPriority <= 0) {
+      restorePriority();
+      return;
+    }
+    if (newPriority == originalPriority) {
+      item->setText(1, QString::number(originalPriority));
+      return;
+    }
+    try {
+      const QString currentName = item->text(0).trimmed();
+      repo_->updateCategory(id, currentName.toStdString(), parentId, newPriority);
+      refreshCategoryManagementUi();
+      reloadCategories();
+      loadData();
+    } catch (const std::exception& ex) {
+      restorePriority();
+      QMessageBox::warning(this, tr("更新失败"), QString::fromUtf8(ex.what()));
+    }
+  }
+}
+
+void MainWindow::adjustCategoryOrder(int direction) {
+  if (!repo_ || !categoryTree_ || direction == 0) {
+    return;
+  }
+  auto* item = categoryTree_->currentItem();
+  if (!item) {
+    return;
+  }
+
+  QTreeWidgetItem* parent = item->parent();
+  const int index = parent ? parent->indexOfChild(item) : categoryTree_->indexOfTopLevelItem(item);
+  const int siblingCount = parent ? parent->childCount() : categoryTree_->topLevelItemCount();
+  const int targetIndex = index + direction;
+  if (index < 0 || targetIndex < 0 || targetIndex >= siblingCount) {
+    return;
+  }
+
+  QTreeWidgetItem* sibling = parent ? parent->child(targetIndex) : categoryTree_->topLevelItem(targetIndex);
+  if (!sibling) {
+    return;
+  }
+
+  const int currentId = item->data(0, Qt::UserRole).toInt();
+  const int siblingId = sibling->data(0, Qt::UserRole).toInt();
+  if (currentId <= 0 || siblingId <= 0) {
+    return;
+  }
+
+  try {
+    repo_->swapCategoryPriority(currentId, siblingId);
+    refreshCategoryManagementUi();
+    reloadCategories();
+    loadData();
+  } catch (const std::exception& ex) {
+    QMessageBox::warning(this, tr("更新失败"), QString::fromUtf8(ex.what()));
+  }
+}
+
+void MainWindow::onMoveCategoryUp() {
+  adjustCategoryOrder(-1);
+}
+
+void MainWindow::onMoveCategoryDown() {
+  adjustCategoryOrder(1);
 }
 
 void MainWindow::onAddCategoryTopLevel() {

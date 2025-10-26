@@ -2,142 +2,142 @@
   "_comment": "此配置文件仅用于提供数据库默认初始数据，若已经完成初始化或不熟悉，数据增改请通过应用内设置功能修改。",
   "categories": [
     {
-      "code": "01",
       "name": "求生者",
+      "priority": 1,
       "items": [
-        {"code": "0101", "name": "Bill(一代)"},
-        {"code": "0102", "name": "Zoey(一代)"},
-        {"code": "0103", "name": "Louis(一代)"},
-        {"code": "0104", "name": "Francis(一代)"},
-        {"code": "0105", "name": "Nick(二代)"},
-        {"code": "0106", "name": "Rochelle(二代)"},
-        {"code": "0107", "name": "Coach(二代)"},
-        {"code": "0108", "name": "Ellis(二代)"}
+        {"name": "Bill(一代)", "priority": 101},
+        {"name": "Zoey(一代)", "priority": 102},
+        {"name": "Louis(一代)", "priority": 103},
+        {"name": "Francis(一代)", "priority": 104},
+        {"name": "Nick(二代)", "priority": 105},
+        {"name": "Rochelle(二代)", "priority": 106},
+        {"name": "Coach(二代)", "priority": 107},
+        {"name": "Ellis(二代)", "priority": 108}
       ]
     },
     {
-      "code": "02",
       "name": "感染者",
+      "priority": 2,
       "items": [
-        {"code": "0201", "name": "Smoker"},
-        {"code": "0202", "name": "Boomer"},
-        {"code": "0203", "name": "Hunter"},
-        {"code": "0204", "name": "Spitter"},
-        {"code": "0205", "name": "Charger"},
-        {"code": "0206", "name": "Jockey"},
-        {"code": "0207", "name": "Tank"},
-        {"code": "0208", "name": "Witch"},
-        {"code": "0209", "name": "普通丧尸"}
+        {"name": "Smoker", "priority": 201},
+        {"name": "Boomer", "priority": 202},
+        {"name": "Hunter", "priority": 203},
+        {"name": "Spitter", "priority": 204},
+        {"name": "Charger", "priority": 205},
+        {"name": "Jockey", "priority": 206},
+        {"name": "Tank", "priority": 207},
+        {"name": "Witch", "priority": 208},
+        {"name": "普通丧尸", "priority": 209}
       ]
     },
     {
-      "code": "03",
       "name": "枪械",
+      "priority": 3,
       "items": [
-        {"code": "0301", "name": "Uzi/SMG 无消音"},
-        {"code": "0302", "name": "MAC-10 消音冲"},
-        {"code": "0303", "name": "MP5"},
-        {"code": "0304", "name": "一代木喷 Pump Shotgun"},
-        {"code": "0305", "name": "二代铁喷 Chrome Shotgun"},
-        {"code": "0306", "name": "一代连喷 Auto Shotgun"},
-        {"code": "0307", "name": "二代连喷 Combat Shotgun"},
-        {"code": "0308", "name": "M16"},
-        {"code": "0309", "name": "AK47"},
-        {"code": "0310", "name": "SCAR-L"},
-        {"code": "0311", "name": "SG552"},
-        {"code": "0312", "name": "连狙猎枪 Hunting Rifle"},
-        {"code": "0313", "name": "连狙军用 Military Sniper"},
-        {"code": "0314", "name": "鸟狙 Scout"},
-        {"code": "0315", "name": "AWP"},
-        {"code": "0316", "name": "小手枪 Pistol"},
-        {"code": "0317", "name": "马格南 Magnum"},
-        {"code": "0318", "name": "M60"},
-        {"code": "0319", "name": "榴弹 Grenade Launcher"}
+        {"name": "Uzi/SMG 无消音", "priority": 301},
+        {"name": "MAC-10 消音冲", "priority": 302},
+        {"name": "MP5", "priority": 303},
+        {"name": "一代木喷 Pump Shotgun", "priority": 304},
+        {"name": "二代铁喷 Chrome Shotgun", "priority": 305},
+        {"name": "一代连喷 Auto Shotgun", "priority": 306},
+        {"name": "二代连喷 Combat Shotgun", "priority": 307},
+        {"name": "M16", "priority": 308},
+        {"name": "AK47", "priority": 309},
+        {"name": "SCAR-L", "priority": 310},
+        {"name": "SG552", "priority": 311},
+        {"name": "连狙猎枪 Hunting Rifle", "priority": 312},
+        {"name": "连狙军用 Military Sniper", "priority": 313},
+        {"name": "鸟狙 Scout", "priority": 314},
+        {"name": "AWP", "priority": 315},
+        {"name": "小手枪 Pistol", "priority": 316},
+        {"name": "马格南 Magnum", "priority": 317},
+        {"name": "M60", "priority": 318},
+        {"name": "榴弹 Grenade Launcher", "priority": 319}
       ]
     },
     {
-      "code": "04",
       "name": "近战",
+      "priority": 4,
       "items": [
-        {"code": "0401", "name": "平底锅 Frying Pan"},
-        {"code": "0402", "name": "吉他 Guitar"},
-        {"code": "0403", "name": "警棍 Nightstick"},
-        {"code": "0404", "name": "棒球棒 Baseball Bat"},
-        {"code": "0405", "name": "板球棒 Cricket Bat"},
-        {"code": "0406", "name": "高尔夫 Golf Club"},
-        {"code": "0407", "name": "砍刀 Machete"},
-        {"code": "0408", "name": "武士刀 Katana"},
-        {"code": "0409", "name": "撬棍 Crowbar"},
-        {"code": "0410", "name": "消防斧 Fire Axe"},
-        {"code": "0411", "name": "电锯 Chainsaw"},
-        {"code": "0412", "name": "小刀 Knife"},
-        {"code": "0413", "name": "防爆盾 Riot Shield"}
+        {"name": "平底锅 Frying Pan", "priority": 401},
+        {"name": "吉他 Guitar", "priority": 402},
+        {"name": "警棍 Nightstick", "priority": 403},
+        {"name": "棒球棒 Baseball Bat", "priority": 404},
+        {"name": "板球棒 Cricket Bat", "priority": 405},
+        {"name": "高尔夫 Golf Club", "priority": 406},
+        {"name": "砍刀 Machete", "priority": 407},
+        {"name": "武士刀 Katana", "priority": 408},
+        {"name": "撬棍 Crowbar", "priority": 409},
+        {"name": "消防斧 Fire Axe", "priority": 410},
+        {"name": "电锯 Chainsaw", "priority": 411},
+        {"name": "小刀 Knife", "priority": 412},
+        {"name": "防爆盾 Riot Shield", "priority": 413}
       ]
     },
     {
-      "code": "05",
       "name": "消耗品",
+      "priority": 5,
       "items": [
-        {"code": "0501", "name": "燃烧瓶 Molotov"},
-        {"code": "0502", "name": "土制炸弹 Pipebomb"},
-        {"code": "0503", "name": "胆汁瓶 Bile Bomb"},
-        {"code": "0504", "name": "医疗包 Medkit"},
-        {"code": "0505", "name": "除颤器 Defibrillator"},
-        {"code": "0506", "name": "止痛药 Pills"},
-        {"code": "0507", "name": "肾上腺素 Adrenaline"}
+        {"name": "燃烧瓶 Molotov", "priority": 501},
+        {"name": "土制炸弹 Pipebomb", "priority": 502},
+        {"name": "胆汁瓶 Bile Bomb", "priority": 503},
+        {"name": "医疗包 Medkit", "priority": 504},
+        {"name": "除颤器 Defibrillator", "priority": 505},
+        {"name": "止痛药 Pills", "priority": 506},
+        {"name": "肾上腺素 Adrenaline", "priority": 507}
       ]
     },
     {
-      "code": "06",
       "name": "互动道具",
+      "priority": 6,
       "items": [
-        {"code": "0601", "name": "汽油桶 Gas Can"},
-        {"code": "0602", "name": "煤气罐 Propane Tank"},
-        {"code": "0603", "name": "氧气罐 Oxygen Tank"},
-        {"code": "0604", "name": "烟花盒 Firework Crate"},
-        {"code": "0605", "name": "子弹堆 Ammo Can/Pile"},
-        {"code": "0606", "name": "燃烧弹盒 Incendiary Ammo"},
-        {"code": "0607", "name": "高爆弹盒 Explosive Ammo"},
-        {"code": "0608", "name": "激光瞄准盒 Laser Sight"}
+        {"name": "汽油桶 Gas Can", "priority": 601},
+        {"name": "煤气罐 Propane Tank", "priority": 602},
+        {"name": "氧气罐 Oxygen Tank", "priority": 603},
+        {"name": "烟花盒 Firework Crate", "priority": 604},
+        {"name": "子弹堆 Ammo Can/Pile", "priority": 605},
+        {"name": "燃烧弹盒 Incendiary Ammo", "priority": 606},
+        {"name": "高爆弹盒 Explosive Ammo", "priority": 607},
+        {"name": "激光瞄准盒 Laser Sight", "priority": 608}
       ]
     },
     {
-      "code": "07",
       "name": "环境",
+      "priority": 7,
       "items": [
-        {"code": "0700", "name": "其他"},
-        {"code": "0701", "name": "光照"},
-        {"code": "0702", "name": "天空盒"},
-        {"code": "0703", "name": "材质贴图"},
-        {"code": "0704", "name": "粒子特效"},
-        {"code": "0705", "name": "安全屋"},
-        {"code": "0706", "name": "门"},
-        {"code": "0707", "name": "挂画"},
-        {"code": "0708", "name": "血迹效果"}
+        {"name": "其他", "priority": 700},
+        {"name": "光照", "priority": 701},
+        {"name": "天空盒", "priority": 702},
+        {"name": "材质贴图", "priority": 703},
+        {"name": "粒子特效", "priority": 704},
+        {"name": "安全屋", "priority": 705},
+        {"name": "门", "priority": 706},
+        {"name": "挂画", "priority": 707},
+        {"name": "血迹效果", "priority": 708}
       ]
     },
     {
-      "code": "08",
       "name": "地图",
+      "priority": 8,
       "items": [
-        {"code": "0801", "name": "官方战役"},
-        {"code": "0802", "name": "社区战役"},
-        {"code": "0803", "name": "生存地图"},
-        {"code": "0804", "name": "对抗地图"},
-        {"code": "0805", "name": "突变模式"}
+        {"name": "官方战役", "priority": 801},
+        {"name": "社区战役", "priority": 802},
+        {"name": "生存地图", "priority": 803},
+        {"name": "对抗地图", "priority": 804},
+        {"name": "突变模式", "priority": 805}
       ]
     },
     {
-      "code": "09",
       "name": "界面",
+      "priority": 9,
       "items": [
-        {"code": "0900", "name": "其他"},
-        {"code": "0901", "name": "HUD"},
-        {"code": "0902", "name": "血条"},
-        {"code": "0903", "name": "主菜单 Main Menu"},
-        {"code": "0904", "name": "载入界面"},
-        {"code": "0905", "name": "准星 Crosshair"},
-        {"code": "0906", "name": "提示图标"}
+        {"name": "其他", "priority": 900},
+        {"name": "HUD", "priority": 901},
+        {"name": "血条", "priority": 902},
+        {"name": "主菜单 Main Menu", "priority": 903},
+        {"name": "载入界面", "priority": 904},
+        {"name": "准星 Crosshair", "priority": 905},
+        {"name": "提示图标", "priority": 906}
       ]
     }
   ]

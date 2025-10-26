@@ -60,58 +60,78 @@ inline std::optional<json> loadSeedJson(const std::string& filename, std::filesy
   }
 }
 
-inline int ensureCategory(Db& db, const std::string& name, std::optional<int> parentId) {
-  Stmt insert(db, "INSERT OR IGNORE INTO categories(parent_id, name) VALUES (?, ?);");
-  if (parentId.has_value()) {
-    insert.bind(1, parentId.value());
-  } else {
-    insert.bindNull(1);
+inline int ensureCategory(Db& db,
+                          const std::string& name,
+                          std::optional<int> parentId,
+                          int priority) {
+  int resolvedPriority = priority;
+  if (resolvedPriority <= 0) {
+    Stmt next(db, "SELECT COALESCE(MAX(priority), 0) FROM categories WHERE parent_id IS ?;");
+    if (parentId.has_value()) {
+      next.bind(1, parentId.value());
+    } else {
+      next.bindNull(1);
+    }
+    next.step();
+    resolvedPriority = next.getInt(0) + 10;
   }
-  insert.bind(2, name);
-  insert.step();
 
-  Stmt query(db, "SELECT id FROM categories WHERE name = ? AND parent_id IS ?;");
-  query.bind(1, name);
+  Stmt upsert(db, R"SQL(
+    INSERT INTO categories(parent_id, name, priority)
+    VALUES (?, ?, ?)
+    ON CONFLICT(parent_id, name) DO UPDATE SET
+      priority = excluded.priority
+  )SQL");
   if (parentId.has_value()) {
-    query.bind(2, parentId.value());
+    upsert.bind(1, parentId.value());
   } else {
-    query.bindNull(2);
+    upsert.bindNull(1);
   }
+  upsert.bind(2, name);
+  upsert.bind(3, resolvedPriority);
+  upsert.step();
+
+  Stmt query(db, "SELECT id FROM categories WHERE parent_id IS ? AND name = ?;");
+  if (parentId.has_value()) {
+    query.bind(1, parentId.value());
+  } else {
+    query.bindNull(1);
+  }
+  query.bind(2, name);
   if (query.step()) {
     return query.getInt(0);
   }
   throw DbError("failed to resolve category id for " + name);
 }
 
-inline void seedCategoryChildren(Db& db, int parentId, const json& node);
-
-inline void seedSingleCategory(Db& db, const std::string& name, std::optional<int> parentId, const json* children = nullptr) {
-  const int catId = ensureCategory(db, name, parentId);
-  if (children) {
-    seedCategoryChildren(db, catId, *children);
+inline int extractPriority(const json& node, int fallback) {
+  auto it = node.find("priority");
+  if (it != node.end() && it->is_number_integer()) {
+    return it->get<int>();
   }
+  return fallback;
 }
 
-inline void seedCategoryChildren(Db& db, int parentId, const json& node) {
-  if (node.is_array()) {
-    for (const auto& child : node) {
-      if (child.is_string()) {
-        seedSingleCategory(db, child.get<std::string>(), parentId, nullptr);
-      } else if (child.is_object()) {
-        auto nameIt = child.find("name");
-        if (nameIt != child.end() && nameIt->is_string()) {
-          const std::string childName = nameIt->get<std::string>();
-          const json* grandchildren = nullptr;
-          auto childrenIt = child.find("children");
-          if (childrenIt != child.end()) {
-            grandchildren = &(*childrenIt);
-          }
-          seedSingleCategory(db, childName, parentId, grandchildren);
-        }
-      }
+inline void seedCategoryNode(Db& db, const json& node, std::optional<int> parentId) {
+  if (!node.is_object()) {
+    throw DbError("category entry must be an object");
+  }
+  const auto nameIt = node.find("name");
+  if (nameIt == node.end() || !nameIt->is_string()) {
+    throw DbError("category entry must contain a string 'name'");
+  }
+  const std::string name = nameIt->get<std::string>();
+  const int priority = extractPriority(node, 0);
+  const int categoryId = ensureCategory(db, name, parentId, priority);
+
+  const auto itemsIt = node.find("items");
+  if (itemsIt != node.end()) {
+    if (!itemsIt->is_array()) {
+      throw DbError("category 'items' must be an array");
     }
-  } else if (node.is_string()) {
-    seedSingleCategory(db, node.get<std::string>(), parentId, nullptr);
+    for (const auto& child : *itemsIt) {
+      seedCategoryNode(db, child, categoryId);
+    }
   }
 }
 
@@ -123,28 +143,35 @@ inline bool seedCategoriesFromConfig(Db& db) {
   }
 
   const auto categoriesIt = data->find("categories");
-  if (categoriesIt == data->end() || !categoriesIt->is_object()) {
-    throw DbError("seed file '" + sourcePath.string() + "' must contain an object property 'categories'");
+  if (categoriesIt == data->end() || !categoriesIt->is_array()) {
+    throw DbError("seed file '" + sourcePath.string() + "' must contain an array property 'categories'");
   }
 
-  for (const auto& [parentName, children] : categoriesIt->items()) {
-    if (parentName.empty()) {
-      continue;
-    }
-    seedSingleCategory(db, parentName, std::nullopt, &children);
+  for (const auto& root : *categoriesIt) {
+    seedCategoryNode(db, root, std::nullopt);
   }
 
   return true;
 }
 
-inline int ensureTagGroup(Db& db, const std::string& name, int sortOrder) {
+inline int ensureTagGroup(Db& db,
+                          const std::string& name,
+                          int priority) {
+  int resolvedPriority = priority;
+  if (resolvedPriority <= 0) {
+    Stmt next(db, "SELECT COALESCE(MAX(priority), 0) FROM tag_groups;");
+    next.step();
+    resolvedPriority = next.getInt(0) + 10;
+  }
+
   Stmt upsert(db, R"SQL(
-    INSERT INTO tag_groups(name, sort_order)
+    INSERT INTO tag_groups(name, priority)
     VALUES (?, ?)
-    ON CONFLICT(name) DO UPDATE SET sort_order = excluded.sort_order;
+    ON CONFLICT(name) DO UPDATE SET
+      priority = excluded.priority
   )SQL");
   upsert.bind(1, name);
-  upsert.bind(2, sortOrder);
+  upsert.bind(2, resolvedPriority);
   upsert.step();
 
   Stmt query(db, "SELECT id FROM tag_groups WHERE name = ?;");
@@ -155,11 +182,36 @@ inline int ensureTagGroup(Db& db, const std::string& name, int sortOrder) {
   throw DbError("failed to resolve tag_group id for " + name);
 }
 
-inline void ensureTag(Db& db, int groupId, const std::string& tagName) {
-  Stmt insert(db, "INSERT OR IGNORE INTO tags(group_id, name) VALUES (?, ?);");
-  insert.bind(1, groupId);
-  insert.bind(2, tagName);
-  insert.step();
+inline void ensureTag(Db& db,
+                      int groupId,
+                      const std::string& tagName,
+                      int priority) {
+  int resolvedPriority = priority;
+  if (resolvedPriority <= 0) {
+    Stmt next(db, "SELECT COALESCE(MAX(priority), 0) FROM tags WHERE group_id = ?;");
+    next.bind(1, groupId);
+    next.step();
+    resolvedPriority = next.getInt(0) + 10;
+  }
+
+  Stmt upsert(db, R"SQL(
+    INSERT INTO tags(group_id, name, priority)
+    VALUES (?, ?, ?)
+    ON CONFLICT(group_id, name) DO UPDATE SET
+      priority = excluded.priority
+  )SQL");
+  upsert.bind(1, groupId);
+  upsert.bind(2, tagName);
+  upsert.bind(3, resolvedPriority);
+  upsert.step();
+}
+
+inline int extractTagPriority(const json& node) {
+  auto sortIt = node.find("priority");
+  if (sortIt != node.end() && sortIt->is_number_integer()) {
+    return sortIt->get<int>();
+  }
+  return 0;
 }
 
 inline bool seedTagsFromConfig(Db& db) {
@@ -170,31 +222,40 @@ inline bool seedTagsFromConfig(Db& db) {
   }
 
   const auto groupsIt = data->find("tag_groups");
-  if (groupsIt == data->end() || !groupsIt->is_object()) {
-    throw DbError("seed file '" + sourcePath.string() + "' must contain an object property 'tag_groups'");
+  if (groupsIt == data->end() || !groupsIt->is_array()) {
+    throw DbError("seed file '" + sourcePath.string() + "' must contain an array property 'tag_groups'");
   }
 
-  int sortOrder = 0;
-  for (const auto& [groupName, tags] : groupsIt->items()) {
-    if (groupName.empty()) {
+  for (const auto& groupNode : *groupsIt) {
+    if (!groupNode.is_object()) {
+      throw DbError("tag_groups entries must be objects");
+    }
+    const auto groupNameIt = groupNode.find("name");
+    if (groupNameIt == groupNode.end() || !groupNameIt->is_string()) {
+      throw DbError("tag group must contain a string 'name'");
+    }
+    const std::string groupName = groupNameIt->get<std::string>();
+    const int groupPriority = extractTagPriority(groupNode);
+    const int groupId = ensureTagGroup(db, groupName, groupPriority);
+
+    const auto tagsIt = groupNode.find("tags");
+    if (tagsIt == groupNode.end()) {
       continue;
     }
-    const int groupId = ensureTagGroup(db, groupName, (sortOrder + 1) * 10);
-    ++sortOrder;
-
-    if (tags.is_array()) {
-      for (const auto& tag : tags) {
-        if (tag.is_string()) {
-          ensureTag(db, groupId, tag.get<std::string>());
-        } else if (tag.is_object()) {
-          auto nameIt = tag.find("name");
-          if (nameIt != tag.end() && nameIt->is_string()) {
-            ensureTag(db, groupId, nameIt->get<std::string>());
-          }
-        }
+    if (!tagsIt->is_array()) {
+      throw DbError("tag group 'tags' must be an array");
+    }
+    for (const auto& tagNode : *tagsIt) {
+      if (!tagNode.is_object()) {
+        throw DbError("tag entry must be an object");
       }
-    } else if (tags.is_string()) {
-      ensureTag(db, groupId, tags.get<std::string>());
+      const auto tagNameIt = tagNode.find("name");
+      if (tagNameIt == tagNode.end() || !tagNameIt->is_string()) {
+        throw DbError("tag entry must contain a string 'name'");
+      }
+      const std::string tagName = tagNameIt->get<std::string>();
+      const int tagPriority = extractTagPriority(tagNode);
+      ensureTag(db, groupId, tagName, tagPriority);
     }
   }
 
@@ -239,8 +300,11 @@ inline void applyMigration1(Db& db) {
       id INTEGER PRIMARY KEY,
       parent_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
       name TEXT NOT NULL,
-      UNIQUE(parent_id, name)
+      priority INTEGER NOT NULL,
+      UNIQUE(parent_id, name),
+      UNIQUE(parent_id, priority)
     );
+    CREATE INDEX IF NOT EXISTS idx_categories_parent_priority ON categories(parent_id, priority, id);
 
     CREATE TABLE IF NOT EXISTS mods (
       id INTEGER PRIMARY KEY,
@@ -267,17 +331,20 @@ inline void applyMigration1(Db& db) {
 
     CREATE TABLE IF NOT EXISTS tag_groups (
       id INTEGER PRIMARY KEY,
-      name TEXT UNIQUE NOT NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0
+      name TEXT NOT NULL UNIQUE,
+      priority INTEGER NOT NULL UNIQUE
     );
 
     CREATE TABLE IF NOT EXISTS tags (
       id INTEGER PRIMARY KEY,
       group_id INTEGER NOT NULL REFERENCES tag_groups(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
-      UNIQUE(group_id, name)
+      priority INTEGER NOT NULL,
+      UNIQUE(group_id, name),
+      UNIQUE(group_id, priority)
     );
     CREATE INDEX IF NOT EXISTS idx_tags_group ON tags(group_id);
+    CREATE INDEX IF NOT EXISTS idx_tags_group_priority ON tags(group_id, priority, id);
 
     CREATE TABLE IF NOT EXISTS mod_tags (
       mod_id INTEGER NOT NULL REFERENCES mods(id) ON DELETE CASCADE,
@@ -339,44 +406,44 @@ inline void applyMigration1(Db& db) {
   const bool categoriesSeededFromFile = detail::seedCategoriesFromConfig(db);
   if (!categoriesSeededFromFile) {
     db.exec(R"SQL(
-      INSERT OR IGNORE INTO categories(parent_id, name) VALUES
-        (NULL, 'General'),
-        (NULL, 'Characters'),
-        (NULL, 'Weapons'),
-        (NULL, 'Survivors'),
-        (NULL, 'Audio');
+      INSERT OR IGNORE INTO categories(parent_id, name, priority) VALUES
+        (NULL, 'General', 10),
+        (NULL, 'Characters', 20),
+        (NULL, 'Weapons', 30),
+        (NULL, 'Survivors', 40),
+        (NULL, 'Audio', 50);
     )SQL");
   }
 
   const bool tagsSeededFromFile = detail::seedTagsFromConfig(db);
   if (!tagsSeededFromFile) {
     db.exec(R"SQL(
-      INSERT OR IGNORE INTO tag_groups(name, sort_order) VALUES
+      INSERT OR IGNORE INTO tag_groups(name, priority) VALUES
         ('Anime', 10),
         ('Realistic', 20),
         ('Maturity', 30);
     )SQL");
     db.exec(R"SQL(
-      INSERT OR IGNORE INTO tags(group_id, name)
-        SELECT id, 'VRC' FROM tag_groups WHERE name = 'Anime';
-      INSERT OR IGNORE INTO tags(group_id, name)
-        SELECT id, 'Arknights' FROM tag_groups WHERE name = 'Anime';
-      INSERT OR IGNORE INTO tags(group_id, name)
-        SELECT id, 'Honkai' FROM tag_groups WHERE name = 'Anime';
-      INSERT OR IGNORE INTO tags(group_id, name)
-        SELECT id, 'BA' FROM tag_groups WHERE name = 'Anime';
-      INSERT OR IGNORE INTO tags(group_id, name)
-        SELECT id, 'Azur Lane' FROM tag_groups WHERE name = 'Anime';
-      INSERT OR IGNORE INTO tags(group_id, name)
-        SELECT id, 'VTuber' FROM tag_groups WHERE name = 'Anime';
+      INSERT OR IGNORE INTO tags(group_id, name, priority)
+        SELECT id, 'VRC', 10 FROM tag_groups WHERE name = 'Anime';
+      INSERT OR IGNORE INTO tags(group_id, name, priority)
+        SELECT id, 'Arknights', 20 FROM tag_groups WHERE name = 'Anime';
+      INSERT OR IGNORE INTO tags(group_id, name, priority)
+        SELECT id, 'Honkai', 30 FROM tag_groups WHERE name = 'Anime';
+      INSERT OR IGNORE INTO tags(group_id, name, priority)
+        SELECT id, 'BA', 40 FROM tag_groups WHERE name = 'Anime';
+      INSERT OR IGNORE INTO tags(group_id, name, priority)
+        SELECT id, 'Azur Lane', 50 FROM tag_groups WHERE name = 'Anime';
+      INSERT OR IGNORE INTO tags(group_id, name, priority)
+        SELECT id, 'VTuber', 60 FROM tag_groups WHERE name = 'Anime';
 
-      INSERT OR IGNORE INTO tags(group_id, name)
-        SELECT id, 'Military' FROM tag_groups WHERE name = 'Realistic';
+      INSERT OR IGNORE INTO tags(group_id, name, priority)
+        SELECT id, 'Military', 10 FROM tag_groups WHERE name = 'Realistic';
 
-      INSERT OR IGNORE INTO tags(group_id, name)
-        SELECT id, 'Safe' FROM tag_groups WHERE name = 'Maturity';
-      INSERT OR IGNORE INTO tags(group_id, name)
-        SELECT id, 'NSFW' FROM tag_groups WHERE name = 'Maturity';
+      INSERT OR IGNORE INTO tags(group_id, name, priority)
+        SELECT id, 'Safe', 10 FROM tag_groups WHERE name = 'Maturity';
+      INSERT OR IGNORE INTO tags(group_id, name, priority)
+        SELECT id, 'NSFW', 20 FROM tag_groups WHERE name = 'Maturity';
     )SQL");
   }
 

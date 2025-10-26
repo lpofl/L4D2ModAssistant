@@ -47,8 +47,10 @@ public:
   /// Category management.
   std::vector<CategoryRow> listCategories() const;
   int createCategory(const std::string& name, std::optional<int> parentId);
-  void updateCategory(int id, const std::string& name, std::optional<int> parentId);
+  void updateCategory(int id, const std::string& name, std::optional<int> parentId,
+                      std::optional<int> priority = std::nullopt);
   void deleteCategory(int id);
+  void swapCategoryPriority(int firstId, int secondId);
 
   /// Tag queries.
   std::vector<TagGroupRow> listTagGroups() const;

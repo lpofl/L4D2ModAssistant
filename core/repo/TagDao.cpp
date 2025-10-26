@@ -1,11 +1,27 @@
 #include "core/repo/TagDao.h"
+#include <utility>
 
-// --------------------------- TAG 组操作 ---------------------------
+namespace {
 
-int TagDao::insertGroup(const std::string& name, int sortOrder) {
-  Stmt stmt(*db_, "INSERT INTO tag_groups(name, sort_order) VALUES(?, ?);");
+int nextGroupPriority(Db& db) {
+  Stmt stmt(db, "SELECT COALESCE(MAX(priority), 0) FROM tag_groups;");
+  stmt.step();
+  return stmt.getInt(0) + 10;
+}
+
+int nextTagPriority(Db& db, int groupId) {
+  Stmt stmt(db, "SELECT COALESCE(MAX(priority), 0) FROM tags WHERE group_id = ?;");
+  stmt.bind(1, groupId);
+  stmt.step();
+  return stmt.getInt(0) + 10;
+}
+
+} // namespace
+
+int TagDao::insertGroup(const std::string& name, int priority) {
+  Stmt stmt(*db_, "INSERT INTO tag_groups(name, priority) VALUES(?, ?);");
   stmt.bind(1, name);
-  stmt.bind(2, sortOrder);
+  stmt.bind(2, priority);
   stmt.step();
   return static_cast<int>(sqlite3_last_insert_rowid(db_->raw()));
 }
@@ -39,33 +55,38 @@ bool TagDao::removeGroup(int groupId) {
 }
 
 int TagDao::ensureGroupId(const std::string& name) {
-  Stmt upsert(*db_, "INSERT OR IGNORE INTO tag_groups(name) VALUES(?);");
-  upsert.bind(1, name);
-  upsert.step();
-
   Stmt query(*db_, "SELECT id FROM tag_groups WHERE name = ?;");
   query.bind(1, name);
   if (!query.step()) {
-    throw DbError("ensureGroupId failed for tag group: " + name);
+    const int priority = nextGroupPriority(*db_);
+    Stmt insert(*db_, "INSERT INTO tag_groups(name, priority) VALUES(?, ?);");
+    insert.bind(1, name);
+    insert.bind(2, priority);
+    insert.step();
+    return static_cast<int>(sqlite3_last_insert_rowid(db_->raw()));
   }
   return query.getInt(0);
 }
 
 std::vector<TagGroupRow> TagDao::listGroups() const {
-  Stmt stmt(*db_, "SELECT id, name, sort_order FROM tag_groups ORDER BY sort_order, id;");
+  Stmt stmt(*db_, "SELECT id, name, priority FROM tag_groups ORDER BY priority, id;");
   std::vector<TagGroupRow> rows;
   while (stmt.step()) {
-    rows.push_back({stmt.getInt(0), stmt.getText(1), stmt.getInt(2)});
+    TagGroupRow row;
+    row.id = stmt.getInt(0);
+    row.name = stmt.getText(1);
+    row.priority = stmt.getInt(2);
+    rows.push_back(std::move(row));
   }
   return rows;
 }
 
-// --------------------------- TAG 条目操作 ---------------------------
-
 int TagDao::insertTag(int groupId, const std::string& name) {
-  Stmt stmt(*db_, "INSERT INTO tags(group_id, name) VALUES(?, ?);");
+  const int priority = nextTagPriority(*db_, groupId);
+  Stmt stmt(*db_, "INSERT INTO tags(group_id, name, priority) VALUES(?, ?, ?);");
   stmt.bind(1, groupId);
   stmt.bind(2, name);
+  stmt.bind(3, priority);
   stmt.step();
   return static_cast<int>(sqlite3_last_insert_rowid(db_->raw()));
 }
@@ -78,62 +99,92 @@ void TagDao::updateTag(int tagId, const std::string& name) {
 }
 
 int TagDao::ensureTagId(int groupId, const std::string& name) {
-  Stmt upsert(*db_, "INSERT OR IGNORE INTO tags(group_id, name) VALUES(?, ?);");
-  upsert.bind(1, groupId);
-  upsert.bind(2, name);
-  upsert.step();
-
   Stmt query(*db_, "SELECT id FROM tags WHERE group_id = ? AND name = ?;");
   query.bind(1, groupId);
   query.bind(2, name);
   if (!query.step()) {
-    throw DbError("ensureTagId failed for tag: " + name);
+    const int priority = nextTagPriority(*db_, groupId);
+    Stmt insert(*db_, "INSERT INTO tags(group_id, name, priority) VALUES(?, ?, ?);");
+    insert.bind(1, groupId);
+    insert.bind(2, name);
+    insert.bind(3, priority);
+    insert.step();
+    return static_cast<int>(sqlite3_last_insert_rowid(db_->raw()));
   }
   return query.getInt(0);
 }
 
 std::vector<TagRow> TagDao::listByGroup(int groupId) const {
-  Stmt stmt(*db_, "SELECT id, group_id, name FROM tags WHERE group_id = ? ORDER BY name;");
+  Stmt stmt(*db_, "SELECT id, group_id, name, priority FROM tags WHERE group_id = ? ORDER BY priority, id;");
   stmt.bind(1, groupId);
   std::vector<TagRow> rows;
   while (stmt.step()) {
-    rows.push_back({stmt.getInt(0), stmt.getInt(1), stmt.getText(2)});
+    TagRow row;
+    row.id = stmt.getInt(0);
+    row.group_id = stmt.getInt(1);
+    row.name = stmt.getText(2);
+    row.priority = stmt.getInt(3);
+    rows.push_back(std::move(row));
   }
   return rows;
 }
 
 std::vector<TagWithGroupRow> TagDao::listAllWithGroup() const {
   Stmt stmt(*db_, R"SQL(
-    SELECT t.id, t.group_id, g.name, t.name
+    SELECT
+      t.id,
+      t.group_id,
+      g.name,
+      t.name,
+      g.priority,
+      t.priority
     FROM tags t
     INNER JOIN tag_groups g ON g.id = t.group_id
-    ORDER BY g.sort_order, g.id, t.name;
+    ORDER BY g.priority, g.id, t.priority, t.id;
   )SQL");
   std::vector<TagWithGroupRow> rows;
   while (stmt.step()) {
-    rows.push_back({stmt.getInt(0), stmt.getInt(1), stmt.getText(2), stmt.getText(3)});
+    TagWithGroupRow row;
+    row.id = stmt.getInt(0);
+    row.group_id = stmt.getInt(1);
+    row.group_name = stmt.getText(2);
+    row.name = stmt.getText(3);
+    row.group_priority = stmt.getInt(4);
+    row.priority = stmt.getInt(5);
+    rows.push_back(std::move(row));
   }
   return rows;
 }
 
 std::vector<TagWithGroupRow> TagDao::listByMod(int modId) const {
   Stmt stmt(*db_, R"SQL(
-    SELECT t.id, t.group_id, g.name, t.name
+    SELECT
+      t.id,
+      t.group_id,
+      g.name,
+      t.name,
+      g.priority,
+      t.priority
     FROM mod_tags mt
     INNER JOIN tags t ON t.id = mt.tag_id
     INNER JOIN tag_groups g ON g.id = t.group_id
     WHERE mt.mod_id = ?
-    ORDER BY g.sort_order, g.id, t.name;
+    ORDER BY g.priority, g.id, t.priority, t.id;
   )SQL");
   stmt.bind(1, modId);
   std::vector<TagWithGroupRow> rows;
   while (stmt.step()) {
-    rows.push_back({stmt.getInt(0), stmt.getInt(1), stmt.getText(2), stmt.getText(3)});
+    TagWithGroupRow row;
+    row.id = stmt.getInt(0);
+    row.group_id = stmt.getInt(1);
+    row.group_name = stmt.getText(2);
+    row.name = stmt.getText(3);
+    row.group_priority = stmt.getInt(4);
+    row.priority = stmt.getInt(5);
+    rows.push_back(std::move(row));
   }
   return rows;
 }
-
-// --------------------------- TAG 关系操作 ---------------------------
 
 void TagDao::deleteUnused(int tagId) {
   Stmt check(*db_, "SELECT COUNT(*) FROM mod_tags WHERE tag_id = ?;");

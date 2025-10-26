@@ -122,12 +122,17 @@ int RepositoryService::createCategory(const std::string& name, std::optional<int
   return categoryDao_->insert(name, parentId);
 }
 
-void RepositoryService::updateCategory(int id, const std::string& name, std::optional<int> parentId) {
-  categoryDao_->update(id, name, parentId);
+void RepositoryService::updateCategory(int id, const std::string& name, std::optional<int> parentId,
+                                       std::optional<int> priority) {
+  categoryDao_->update(id, name, parentId, priority);
 }
 
 void RepositoryService::deleteCategory(int id) {
   categoryDao_->remove(id);
+}
+
+void RepositoryService::swapCategoryPriority(int firstId, int secondId) {
+  categoryDao_->swapPriorities(firstId, secondId);
 }
 
 std::vector<TagGroupRow> RepositoryService::listTagGroups() const {
@@ -136,11 +141,11 @@ std::vector<TagGroupRow> RepositoryService::listTagGroups() const {
 
 int RepositoryService::createTagGroup(const std::string& name) {
   const auto groups = tagDao_->listGroups();
-  int nextSort = 10;
+  int nextPriority = 10;
   for (const auto& group : groups) {
-    nextSort = std::max(nextSort, group.sort_order + 10);
+    nextPriority = std::max(nextPriority, group.priority + 10);
   }
-  return tagDao_->insertGroup(name, nextSort);
+  return tagDao_->insertGroup(name, nextPriority);
 }
 
 void RepositoryService::renameTagGroup(int groupId, const std::string& name) {
