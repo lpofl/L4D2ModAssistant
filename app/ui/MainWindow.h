@@ -65,7 +65,8 @@ private slots:
   void onClearDeletedMods();
   void onSettingsNavChanged(int row);
   void onBrowseRepoDir();
-  void onBrowseGameDir();
+  void onBrowseGameRoot();
+  void onGameRootEdited(const QString& path);
   void onImportModeChanged(int index);
   void onAutoImportToggled(bool checked);
   void onAutoImportModeChanged(int index);
@@ -138,6 +139,9 @@ private:
   int selectedTagId() const;
   void updateTabButtonState(QPushButton* active);
   QString detectL4D2GameDirectory() const; // New helper method
+  QString normalizeAddonsPath(const QString& path) const; // 归一化 addons 路径，确保指向 addons 目录
+  void updateGamePathDisplays(const QString& rootPath); // 根据根目录更新 addons/workshop 展示路径
+  QString deriveGameRootFromAddons(const QString& addonsPath) const; // 从 addons 路径推导游戏根目录
 
   std::unique_ptr<RepositoryService> repo_;
   QString repoDir_;
@@ -177,8 +181,10 @@ private:
   QStackedWidget* settingsStack_{};
   QLineEdit* settingsRepoDirEdit_{};
   QPushButton* settingsRepoBrowseBtn_{};
-  QLineEdit* settingsGameDirEdit_{};
-  QPushButton* settingsGameDirBrowseBtn_{};
+  QLineEdit* settingsGameRootEdit_{};
+  QPushButton* settingsGameRootBrowseBtn_{};
+  QLineEdit* settingsAddonsPathDisplay_{};
+  QLineEdit* settingsWorkshopPathDisplay_{};
   QComboBox* importModeCombo_{};
   QCheckBox* autoImportCheckbox_{};
   QComboBox* autoImportModeCombo_{};

@@ -21,7 +21,7 @@ struct Settings {
   std::string repoDbPath; // Path to the repository database file
   std::string repoDir;    // Path to the MOD repository directory
 
-  std::string gameDirectory; // Path to the game installation directory
+  std::string gameDirectory; // Path to the game's addons directory (left4dead2/addons)
 
   ImportAction importAction{ImportAction::Cut}; // Default: Cut
   bool addonsAutoImportEnabled{false};

@@ -102,8 +102,19 @@
       ]
     },
     {
-      "name": "环境",
+      "name": "地图",
       "priority": 7,
+      "items": [
+        {"name": "官方战役", "priority": 801},
+        {"name": "社区战役", "priority": 802},
+        {"name": "生存地图", "priority": 803},
+        {"name": "对抗地图", "priority": 804},
+        {"name": "突变模式", "priority": 805}
+      ]
+    },
+    {
+      "name": "环境",
+      "priority": 8,
       "items": [
         {"name": "其他", "priority": 700},
         {"name": "光照", "priority": 701},
@@ -117,17 +128,6 @@
       ]
     },
     {
-      "name": "地图",
-      "priority": 8,
-      "items": [
-        {"name": "官方战役", "priority": 801},
-        {"name": "社区战役", "priority": 802},
-        {"name": "生存地图", "priority": 803},
-        {"name": "对抗地图", "priority": 804},
-        {"name": "突变模式", "priority": 805}
-      ]
-    },
-    {
       "name": "界面",
       "priority": 9,
       "items": [
@@ -138,6 +138,15 @@
         {"name": "载入界面", "priority": 904},
         {"name": "准星 Crosshair", "priority": 905},
         {"name": "提示图标", "priority": 906}
+      ]
+    },
+    {
+      "name": "功能",
+      "priority": 10,
+      "items": [
+        {"name": "其他", "priority": 1000},
+        {"name": "管理器", "priority": 1001},
+        {"name": "AI提升", "priority": 1002}
       ]
     }
   ]
