@@ -8,6 +8,7 @@
 #include <QComboBox>
 #include <QCoreApplication> // For applicationDirPath()
 #include <QDir>             // For mkpath()
+#include <QFile>            // For copy/move operations
 #include <QSettings>        // For registry access
 #include <QFileDialog>
 #include <QFileInfo>
@@ -128,7 +129,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   if (settings_.gameDirectory.empty()) {
     QString detectedPath = detectL4D2GameDirectory();
     if (!detectedPath.isEmpty()) {
-      settings_.gameDirectory = detectedPath.toStdString();
+      const QString normalizedRoot = normalizeRootInput(detectedPath);
+      settings_.gameDirectory = normalizedRoot.toStdString();
+      // 新增：根据游戏目录推导并保存 addons 与 workshop 路径（便于其它场景直接读取）
+      const QString addonsPath = deriveAddonsPath(normalizedRoot);
+      const QString workshopPath = deriveWorkshopPath(addonsPath);
+      settings_.addonsPath = QDir::toNativeSeparators(addonsPath).toStdString();
+      settings_.workshopPath = QDir::toNativeSeparators(workshopPath).toStdString();
       settingsChanged = true;
       spdlog::info("Detected L4D2 game directory: {}", settings_.gameDirectory);
     } else {
@@ -497,25 +504,25 @@ QWidget* MainWindow::buildBasicSettingsPane() {
   repoWrapper->setLayout(repoRow);
   form->addRow(tr("仓库目录"), repoWrapper);
 
-  settingsGameRootEdit_ = new QLineEdit(container);
-  settingsGameRootEdit_->setPlaceholderText(tr("选择或输入 L4D2 游戏根目录")); // 引导用户填写游戏根目录
-  settingsGameRootBrowseBtn_ = new QPushButton(tr("浏览..."), container);
+  settingsGameDirEdit_ = new QLineEdit(container);
+  settingsGameDirEdit_->setPlaceholderText(tr("选择或输入 L4D2 游戏根目录")); // 引导用户填写游戏根目录
+  settingsGameDirBrowseBtn_ = new QPushButton(tr("浏览..."), container);
   auto* gameRow = new QHBoxLayout();
   gameRow->setContentsMargins(0, 0, 0, 0);
   gameRow->setSpacing(8);
-  gameRow->addWidget(settingsGameRootEdit_, 1);
-  gameRow->addWidget(settingsGameRootBrowseBtn_);
+  gameRow->addWidget(settingsGameDirEdit_, 1);
+  gameRow->addWidget(settingsGameDirBrowseBtn_);
   auto* gameWrapper = new QWidget(container);
   gameWrapper->setLayout(gameRow);
   form->addRow(tr("游戏根目录"), gameWrapper);
 
   settingsAddonsPathDisplay_ = new QLineEdit(container);
-  settingsAddonsPathDisplay_->setReadOnly(true); // 只读展示自动推导的 addons 路径
+  settingsAddonsPathDisplay_->setReadOnly(true); // 只读展示推导出的 addons 路径
   settingsAddonsPathDisplay_->setPlaceholderText(tr("自动识别的 addons 目录"));
   form->addRow(tr("addons 目录"), settingsAddonsPathDisplay_);
 
   settingsWorkshopPathDisplay_ = new QLineEdit(container);
-  settingsWorkshopPathDisplay_->setReadOnly(true); // 只读展示自动推导的 workshop 路径
+  settingsWorkshopPathDisplay_->setReadOnly(true); // 只读展示推导出的 workshop 路径
   settingsWorkshopPathDisplay_->setPlaceholderText(tr("自动识别的 workshop 目录"));
   form->addRow(tr("workshop 目录"), settingsWorkshopPathDisplay_);
 
@@ -523,9 +530,9 @@ QWidget* MainWindow::buildBasicSettingsPane() {
   importModeCombo_->addItem(tr("剪切到仓库目录"), static_cast<int>(ImportAction::Cut));
   importModeCombo_->addItem(tr("复制到仓库目录"), static_cast<int>(ImportAction::Copy));
   importModeCombo_->addItem(tr("仅链接"), static_cast<int>(ImportAction::None));
-  form->addRow(tr("导入方式"), importModeCombo_);
+  form->addRow(tr("入库方式"), importModeCombo_);
 
-  autoImportCheckbox_ = new QCheckBox(tr("自动导入 addons 下的 workshop 文件夹"), container); // 说明仅同步 workshop 子目录
+  autoImportCheckbox_ = new QCheckBox(tr("自动导入游戏目录下的 addons"), container);
   form->addRow(QString(), autoImportCheckbox_);
 
   autoImportModeCombo_ = new QComboBox(container);
@@ -550,8 +557,8 @@ QWidget* MainWindow::buildBasicSettingsPane() {
   layout->addStretch(1);
 
   connect(settingsRepoBrowseBtn_, &QPushButton::clicked, this, &MainWindow::onBrowseRepoDir);
-  connect(settingsGameRootBrowseBtn_, &QPushButton::clicked, this, &MainWindow::onBrowseGameRoot);
-  connect(settingsGameRootEdit_, &QLineEdit::textChanged, this, &MainWindow::onGameRootEdited);
+  connect(settingsGameDirBrowseBtn_, &QPushButton::clicked, this, &MainWindow::onBrowseGameDir);
+  connect(settingsGameDirEdit_, &QLineEdit::textChanged, this, &MainWindow::onGameDirEdited);
   connect(importModeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onImportModeChanged);
   connect(autoImportCheckbox_, &QCheckBox::toggled, this, &MainWindow::onAutoImportToggled);
   connect(autoImportModeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onAutoImportModeChanged);
@@ -696,12 +703,11 @@ void MainWindow::refreshBasicSettingsUi() {
     settingsRepoDirEdit_->setText(QString::fromStdString(settings_.repoDir));
   }
 
-  if (settingsGameRootEdit_) {
-    const QString addonsPath = QString::fromStdString(settings_.gameDirectory);
-    const QString rootPath = deriveGameRootFromAddons(addonsPath);
-    QSignalBlocker blocker(settingsGameRootEdit_);
-    settingsGameRootEdit_->setText(QDir::toNativeSeparators(rootPath));
-    updateGamePathDisplays(rootPath);
+  if (settingsGameDirEdit_) {
+    QSignalBlocker blocker(settingsGameDirEdit_);
+    const QString rootPath = QString::fromStdString(settings_.gameDirectory);
+    settingsGameDirEdit_->setText(QDir::toNativeSeparators(rootPath));
+    updateDerivedGamePaths(rootPath);
   }
 
   if (importModeCombo_) {
@@ -961,15 +967,14 @@ int MainWindow::selectedTagId() const {
 }
 
 void MainWindow::reloadCategories() {
-  const bool shouldRefreshRepoFilter =
-      filterAttribute_ && filterAttribute_->currentText() == tr("分类") && filterModel_;
-
-  // 当仓库过滤器不是“分类”时，仅刷新缓存，避免搜索框被模型默认选项覆盖
-  if (shouldRefreshRepoFilter) {
-    populateCategoryFilterModel(filterModel_, true);
-  } else {
-    populateCategoryFilterModel(nullptr, true);
+  categoryNames_.clear();
+  categoryParent_.clear();
+  const bool usingCategoryFilter =
+      filterAttribute_ && filterAttribute_->currentText() == tr("分类");
+  if (!usingCategoryFilter && filterModel_) {
+    filterModel_->clear();
   }
+  populateCategoryFilterModel(usingCategoryFilter ? filterModel_ : nullptr, true);
 }
 
 void MainWindow::loadData() {
@@ -1182,11 +1187,6 @@ void MainWindow::populateCategoryFilterModel(QStandardItemModel* model, bool upd
     return;
   }
 
-  if (updateCache) {
-    categoryNames_.clear();
-    categoryParent_.clear();
-  }
-
   if (model) {
     model->clear();
     auto* uncategorizedItem = new QStandardItem(tr("未分类"));
@@ -1224,21 +1224,19 @@ void MainWindow::populateCategoryFilterModel(QStandardItemModel* model, bool upd
     std::sort(bucket.begin(), bucket.end(), compare);
   }
 
-  if (!model) {
-    return;
-  }
-
   for (const auto& parent : topLevel) {
-    auto* parentItem = new QStandardItem(QString::fromStdString(parent.name));
-    parentItem->setData(parent.id, Qt::UserRole);
-    model->appendRow(parentItem);
+    if (model) {
+      auto* parentItem = new QStandardItem(QString::fromStdString(parent.name));
+      parentItem->setData(parent.id, Qt::UserRole);
+      model->appendRow(parentItem);
 
-    const auto childIt = children.find(parent.id);
-    if (childIt != children.end()) {
-      for (const auto& child : childIt->second) {
-        auto* childItem = new QStandardItem("  " + QString::fromStdString(child.name));
-        childItem->setData(child.id, Qt::UserRole);
-        model->appendRow(childItem);
+      const auto childIt = children.find(parent.id);
+      if (childIt != children.end()) {
+        for (const auto& child : childIt->second) {
+          auto* childItem = new QStandardItem("  " + QString::fromStdString(child.name));
+          childItem->setData(child.id, Qt::UserRole);
+          model->appendRow(childItem);
+        }
       }
     }
   }
@@ -1495,6 +1493,11 @@ void MainWindow::onImport() {
     return;
   }
   ModRow mod = dialog.modData();
+  QStringList transferErrors;
+  if (!ensureModFilesInRepository(mod, transferErrors)) {
+    QMessageBox::warning(this, tr("导入失败"), transferErrors.join(QStringLiteral("\n")));
+    return;
+  }
   try {
     repo_->createModWithTags(mod, dialog.selectedTags());
     loadData();
@@ -1523,6 +1526,11 @@ void MainWindow::onEdit() {
   }
 
   ModRow updated = dialog.modData();
+  QStringList transferErrors;
+  if (!ensureModFilesInRepository(updated, transferErrors)) {
+    QMessageBox::warning(this, tr("保存失败"), transferErrors.join(QStringLiteral("\n")));
+    return;
+  }
   repo_->updateModWithTags(updated, dialog.selectedTags());
   loadData();
   updateDetailForMod(updated.id);
@@ -1772,24 +1780,22 @@ void MainWindow::onBrowseRepoDir() {
   }
 }
 
-void MainWindow::onBrowseGameRoot() {
-  if (!settingsGameRootEdit_) {
+void MainWindow::onBrowseGameDir() {
+  if (!settingsGameDirEdit_) {
     return;
   }
-  const QString current = QDir::fromNativeSeparators(settingsGameRootEdit_->text());
-  QString selected = QFileDialog::getExistingDirectory(this,
-                                                       tr("选择 L4D2 游戏根目录"),
-                                                       current.isEmpty() ? deriveGameRootFromAddons(QString::fromStdString(settings_.gameDirectory))
-                                                                         : current);
+  const QString current = settingsGameDirEdit_->text();
+  QString selected = QFileDialog::getExistingDirectory(this, tr("选择游戏目录"), current);
   if (!selected.isEmpty()) {
-    const QString cleanedRoot = QDir::cleanPath(selected); // 统一清理根目录路径格式
-    settingsGameRootEdit_->setText(QDir::toNativeSeparators(cleanedRoot));
-    updateGamePathDisplays(cleanedRoot);
+    const QString cleanedRoot = normalizeRootInput(selected); // 清理输入确保为根目录格式
+    settingsGameDirEdit_->setText(QDir::toNativeSeparators(cleanedRoot));
+    updateDerivedGamePaths(cleanedRoot);
   }
 }
 
-void MainWindow::onGameRootEdited(const QString& path) {
-  updateGamePathDisplays(QDir::fromNativeSeparators(path)); // 文本变更时同步刷新推导路径
+void MainWindow::onGameDirEdited(const QString& path) {
+  const QString cleanedRoot = normalizeRootInput(path); // 文本改变时同步清理
+  updateDerivedGamePaths(cleanedRoot);
   setSettingsStatus({});
 }
 
@@ -1831,20 +1837,26 @@ void MainWindow::onSaveSettings() {
       updated.repoDbPath = QDir(repoPath).filePath("repo.db").toStdString();
     }
 
-    if (settingsGameRootEdit_) {
-      const QString rawRootPath = settingsGameRootEdit_->text().trimmed();
-      const QString cleanedRoot = QDir::cleanPath(QDir::fromNativeSeparators(rawRootPath));
+    if (settingsGameDirEdit_) {
+      const QString cleanedRoot = normalizeRootInput(settingsGameDirEdit_->text().trimmed());
       if (cleanedRoot.isEmpty()) {
         setSettingsStatus(tr("游戏根目录不能为空"), true);
         return;
       }
-      const QString addonsPath = normalizeAddonsPath(cleanedRoot); // 保存前根据根目录推导 addons 目录
-      QDir addonsDir(addonsPath);
-      if (addonsDir.dirName().compare(QStringLiteral("addons"), Qt::CaseInsensitive) != 0) {
+      const QString addonsPath = deriveAddonsPath(cleanedRoot);
+      if (addonsPath.isEmpty()) {
         setSettingsStatus(tr("未能识别有效的 addons 目录，请确认选择了正确的游戏根目录"), true);
         return;
       }
-      updated.gameDirectory = addonsPath.toStdString();
+      updated.gameDirectory = cleanedRoot.toStdString();
+      // 新增：同时保存推导得到的 addons 与 workshop 路径，确保设置可被其它场景直接使用
+      {
+        const QString normalizedRoot = cleanedRoot;
+        const QString addons = deriveAddonsPath(normalizedRoot);
+        const QString workshop = deriveWorkshopPath(addons);
+        updated.addonsPath = QDir::toNativeSeparators(addons).toStdString();
+        updated.workshopPath = QDir::toNativeSeparators(workshop).toStdString();
+      }
     }
 
     if (importModeCombo_) {
@@ -2317,52 +2329,6 @@ void MainWindow::onClearDeletedMods() {
   }
 }
 
-QString MainWindow::normalizeAddonsPath(const QString& path) const {
-  if (path.isEmpty()) {
-    return path;
-  }
-
-  const QString cleanedInput = QDir::cleanPath(QDir::fromNativeSeparators(path));
-  QDir dir(cleanedInput);
-  // 辅助方法：在给定目录下查找 left4dead2/addons 或直接 addons 子目录
-  auto ensureAddons = [](const QDir& base) -> QString {
-    if (!base.exists()) {
-      return QString();
-    }
-    const QDir nestedAddons(base.filePath(QStringLiteral("left4dead2/addons")));
-    if (nestedAddons.exists()) {
-      return QDir::cleanPath(nestedAddons.path());
-    }
-    const QDir directAddons(base.filePath(QStringLiteral("addons")));
-    if (directAddons.exists()) {
-      return QDir::cleanPath(directAddons.path());
-    }
-    return QString();
-  };
-
-  QString normalized = cleanedInput;
-
-  if (dir.dirName().compare(QStringLiteral("addons"), Qt::CaseInsensitive) == 0) {
-    normalized = dir.path();
-  } else if (dir.dirName().compare(QStringLiteral("left4dead2"), Qt::CaseInsensitive) == 0 &&
-             dir.exists(QStringLiteral("addons"))) {
-    normalized = QDir::cleanPath(dir.filePath(QStringLiteral("addons")));
-  } else {
-    QString candidate = ensureAddons(dir);
-    if (candidate.isEmpty()) {
-      QDir parent(dir);
-      if (parent.cdUp()) {
-        candidate = ensureAddons(parent);
-      }
-    }
-    if (!candidate.isEmpty()) {
-      normalized = candidate;
-    }
-  }
-
-  return normalized; // 统一返回清洗后的路径字符串
-}
-
 QString MainWindow::detectL4D2GameDirectory() const {
   QString installPath;
   // Try 64-bit registry path first
@@ -2376,68 +2342,214 @@ QString MainWindow::detectL4D2GameDirectory() const {
   }
 
   if (!installPath.isEmpty()) {
-    // 将安装目录转换成 addons 目录
-    const QString addonsPath = normalizeAddonsPath(installPath);
-    QDir addonsDir(QDir::fromNativeSeparators(addonsPath));
-    if (addonsDir.exists() &&
-        addonsDir.dirName().compare(QStringLiteral("addons"), Qt::CaseInsensitive) == 0) {
-      return addonsPath;
+    // Verify if it's actually L4D2 by checking for a known file/folder
+    QDir gameDir(installPath);
+    if (gameDir.exists("left4dead2")) { // Check for the 'left4dead2' folder inside the install path
+      return QDir::toNativeSeparators(installPath);
     }
   }
   return QString(); // Return empty if not found or not verified
 }
 
-void MainWindow::updateGamePathDisplays(const QString& rootPath) {
+QString MainWindow::deriveAddonsPath(const QString& rootPath) const {
+  const QString normalizedRoot = normalizeRootInput(rootPath);
+  if (normalizedRoot.isEmpty()) {
+    return {};
+  }
+
+  QDir rootDir(normalizedRoot);
+  const QString dirName = rootDir.dirName().toLower();
+
+  if (dirName == QStringLiteral("addons")) {
+    return normalizedRoot;
+  }
+
+  if (dirName == QStringLiteral("left4dead2")) {
+    return QDir::cleanPath(rootDir.filePath(QStringLiteral("addons")));
+  }
+
+  return QDir::cleanPath(rootDir.filePath(QStringLiteral("left4dead2/addons")));
+}
+
+QString MainWindow::deriveWorkshopPath(const QString& addonsPath) const {
+  if (addonsPath.isEmpty()) {
+    return {};
+  }
+  QDir addonsDir(addonsPath);
+  return QDir::cleanPath(addonsDir.filePath(QStringLiteral("workshop")));
+}
+
+void MainWindow::updateDerivedGamePaths(const QString& rootPath) {
   if (!settingsAddonsPathDisplay_ || !settingsWorkshopPathDisplay_) {
     return;
   }
 
-  const QString preparedRoot = rootPath.isEmpty() ? QString() : QDir::cleanPath(QDir::fromNativeSeparators(rootPath)); // 规范根目录文本，便于派生
-  QString addonsPath;
-  if (!preparedRoot.isEmpty()) {
-    addonsPath = normalizeAddonsPath(preparedRoot); // 依据根目录推导 addons 路径
-  }
-
-  QString displayAddons;
-  QString displayWorkshop;
-  if (!addonsPath.isEmpty()) {
-    QDir addonsDir(addonsPath);
-    if (addonsDir.dirName().compare(QStringLiteral("addons"), Qt::CaseInsensitive) == 0) {
-      displayAddons = QDir::toNativeSeparators(QDir::cleanPath(addonsDir.path()));
-      const QString workshopPath = QDir(addonsDir).filePath(QStringLiteral("workshop"));
-      displayWorkshop = QDir::toNativeSeparators(QDir::cleanPath(workshopPath));
-    }
-  }
+  const QString normalizedRoot = normalizeRootInput(rootPath);
+  const QString addonsPath = deriveAddonsPath(normalizedRoot);
+  const QString workshopPath = deriveWorkshopPath(addonsPath);
 
   {
     QSignalBlocker blocker(settingsAddonsPathDisplay_);
-    settingsAddonsPathDisplay_->setText(displayAddons);
+    settingsAddonsPathDisplay_->setText(
+        addonsPath.isEmpty() ? QString() : QDir::toNativeSeparators(addonsPath));
   }
   {
     QSignalBlocker blocker(settingsWorkshopPathDisplay_);
-    settingsWorkshopPathDisplay_->setText(displayWorkshop);
+    settingsWorkshopPathDisplay_->setText(
+        workshopPath.isEmpty() ? QString() : QDir::toNativeSeparators(workshopPath));
   }
 }
 
-QString MainWindow::deriveGameRootFromAddons(const QString& addonsPath) const {
-  if (addonsPath.isEmpty()) {
-    return QString();
+QString MainWindow::normalizeRootInput(const QString& rawPath) const {
+  if (rawPath.isEmpty()) {
+    return {};
+  }
+  QString cleaned = QDir::cleanPath(QDir::fromNativeSeparators(rawPath));
+  QDir dir(cleaned);
+  const QString dirName = dir.dirName().toLower();
+
+  if (dirName == QStringLiteral("addons")) {
+    if (dir.cdUp()) {
+      QString candidate = QDir::cleanPath(dir.path());
+      if (dir.dirName().compare(QStringLiteral("left4dead2"), Qt::CaseInsensitive) == 0 && dir.cdUp()) {
+        return QDir::cleanPath(dir.path());
+      }
+      return candidate;
+    }
   }
 
-  const QString cleanedAddons = QDir::cleanPath(QDir::fromNativeSeparators(addonsPath)); // 清理路径格式兼容差异
-  QDir dir(cleanedAddons);
-  if (dir.dirName().compare(QStringLiteral("addons"), Qt::CaseInsensitive) != 0) {
-    return cleanedAddons;
+  if (dirName == QStringLiteral("left4dead2")) {
+    if (dir.cdUp()) {
+      return QDir::cleanPath(dir.path());
+    }
   }
 
-  if (!dir.cdUp()) {
-    return cleanedAddons;
+  return cleaned;
+}
+
+bool MainWindow::ensureModFilesInRepository(ModRow& mod, QStringList& errors) const {
+  const ImportAction action = settings_.importAction;
+  if (action == ImportAction::None) {
+    return true;
   }
 
-  QDir left4dead2Dir(dir); // 记录 left4dead2 层级，便于在失败时回退
-  if (!dir.cdUp()) {
-    return QDir::cleanPath(left4dead2Dir.path());
+  const QString repoDir = QDir::cleanPath(QDir::fromNativeSeparators(QString::fromStdString(settings_.repoDir)));
+  if (repoDir.isEmpty()) {
+    errors << tr("仓库目录未配置，无法执行入库操作。");
+    return false;
   }
 
-  return QDir::cleanPath(dir.path());
+  QDir repoDirObj(repoDir);
+  if (!repoDirObj.exists() && !repoDirObj.mkpath(QStringLiteral("."))) {
+    errors << tr("无法创建仓库目录：%1").arg(repoDir);
+    return false;
+  }
+
+  const auto repoPrefix = [repoDirObj]() {
+    QString prefix = QDir::fromNativeSeparators(repoDirObj.absolutePath());
+    if (!prefix.endsWith(u'/')) {
+      prefix.append(u'/');
+    }
+    return prefix;
+  }();
+
+  const auto allocateTargetPath = [&repoDirObj](const QFileInfo& sourceInfo) {
+    const QString originalName = sourceInfo.fileName().isEmpty() ? QStringLiteral("mod") : sourceInfo.fileName();
+    QString baseName = sourceInfo.completeBaseName();
+    if (baseName.isEmpty()) {
+      baseName = QStringLiteral("mod");
+    }
+    const QString suffix = sourceInfo.completeSuffix();
+
+    QString candidateName = originalName;
+    QString candidatePath = repoDirObj.filePath(candidateName);
+    int counter = 1;
+    while (QFileInfo::exists(candidatePath)) {
+      if (suffix.isEmpty()) {
+        candidateName = QStringLiteral("%1_%2").arg(baseName).arg(counter);
+      } else {
+        candidateName = QStringLiteral("%1_%2.%3").arg(baseName).arg(counter).arg(suffix);
+      }
+      candidatePath = repoDirObj.filePath(candidateName);
+      ++counter;
+    }
+    return QDir::cleanPath(candidatePath);
+  };
+
+  const auto inRepo = [&repoPrefix](const QFileInfo& info) {
+    const QString normalizedFile = QDir::fromNativeSeparators(info.absoluteFilePath());
+    return normalizedFile.startsWith(repoPrefix, Qt::CaseInsensitive);
+  };
+
+  const auto performTransfer = [action, &errors](const QString& src, const QString& dst, const QString& label) {
+    auto emitFailure = [&]() {
+      errors << tr("无法%1 %2 到仓库目录：%3")
+                    .arg(action == ImportAction::Cut ? tr("剪切") : tr("复制"))
+                    .arg(label, dst);
+      return false;
+    };
+
+    switch (action) {
+      case ImportAction::Copy:
+        if (!QFile::copy(src, dst)) {
+          return emitFailure();
+        }
+        return true;
+      case ImportAction::Cut:
+        if (QFile::rename(src, dst)) {
+          return true;
+        }
+        if (QFile::copy(src, dst)) {
+          QFile::remove(src);
+          return true;
+        }
+        return emitFailure();
+      case ImportAction::None:
+        return true;
+    }
+    return true;
+  };
+
+  const auto handlePath = [&](std::string& pathRef, const QString& label, bool required) {
+    if (pathRef.empty()) {
+      if (required) {
+        errors << tr("%1路径为空，无法执行入库操作。").arg(label);
+        return false;
+      }
+      return true;
+    }
+
+    QString sourcePath = QDir::cleanPath(QDir::fromNativeSeparators(QString::fromStdString(pathRef)));
+    QFileInfo sourceInfo(sourcePath);
+    if (!sourceInfo.exists()) {
+      if (required) {
+        errors << tr("找不到%1：%2").arg(label, sourcePath);
+        return false;
+      }
+      return true;
+    }
+
+    if (inRepo(sourceInfo)) {
+      pathRef = QDir::toNativeSeparators(sourceInfo.absoluteFilePath()).toStdString();
+      return true;
+    }
+
+    const QString targetPath = allocateTargetPath(sourceInfo);
+    QFileInfo targetInfo(targetPath);
+    if (!targetInfo.dir().exists() && !targetInfo.dir().mkpath(QStringLiteral("."))) {
+      errors << tr("无法创建目标目录：%1").arg(targetInfo.dir().absolutePath());
+      return false;
+    }
+
+    if (!performTransfer(sourceInfo.absoluteFilePath(), targetPath, label)) {
+      return false;
+    }
+
+    pathRef = QDir::toNativeSeparators(targetPath).toStdString();
+    return true;
+  };
+
+  const bool fileOk = handlePath(mod.file_path, tr("MOD 文件"), true);
+  const bool coverOk = handlePath(mod.cover_path, tr("封面文件"), false);
+  return fileOk && coverOk;
 }

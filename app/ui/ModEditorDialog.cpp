@@ -1280,6 +1280,24 @@ void ModEditorDialog::applyFileMetadata(const QString& path) {
     nameEdit_->setText(baseName);
   }
 
+  // 如果文件名是纯数字，则默认推断为 Steam 工坊 ID 并自动补全链接与平台
+  const bool isNumericId =
+      !baseName.isEmpty() && std::all_of(baseName.cbegin(), baseName.cend(), [](const QChar& ch) { return ch.isDigit(); });
+  if (isNumericId) {
+    const QString steamPrefix = QStringLiteral("https://steamcommunity.com/sharedfiles/filedetails/?id=");
+    const QString steamUrl = steamPrefix + baseName;
+    if (sourceUrlEdit_) {
+      QSignalBlocker blocker(sourceUrlEdit_);
+      sourceUrlEdit_->setText(steamUrl);
+    }
+    if (sourcePlatformEdit_) {
+      QSignalBlocker blocker(sourcePlatformEdit_);
+      sourcePlatformEdit_->setText(QStringLiteral("steam"));
+      platformEditedManually_ = false;
+      lastAutoPlatform_ = QStringLiteral("steam");
+    }
+  }
+
   const double sizeMb = static_cast<double>(info.size()) / (1024.0 * 1024.0);
   sizeSpin_->setValue(sizeMb);
 

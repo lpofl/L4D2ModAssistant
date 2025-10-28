@@ -9,10 +9,13 @@
         {"name": "Zoey(一代)", "priority": 102},
         {"name": "Louis(一代)", "priority": 103},
         {"name": "Francis(一代)", "priority": 104},
-        {"name": "Nick(二代)", "priority": 105},
-        {"name": "Rochelle(二代)", "priority": 106},
-        {"name": "Coach(二代)", "priority": 107},
-        {"name": "Ellis(二代)", "priority": 108}
+        {"name": "一代四人组合", "priority": 105},
+        {"name": "Nick(二代)", "priority": 106},
+        {"name": "Rochelle(二代)", "priority": 107},
+        {"name": "Coach(二代)", "priority": 108},
+        {"name": "Ellis(二代)", "priority": 109},
+        {"name": "二代四人组合", "priority": 110},
+        {"name": "八人组合包", "priority": 111}
       ]
     },
     {

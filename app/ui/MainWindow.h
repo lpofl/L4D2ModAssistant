@@ -2,6 +2,7 @@
 
 #include <QMainWindow>
 #include <QString>
+#include <QStringList>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -65,8 +66,8 @@ private slots:
   void onClearDeletedMods();
   void onSettingsNavChanged(int row);
   void onBrowseRepoDir();
-  void onBrowseGameRoot();
-  void onGameRootEdited(const QString& path);
+  void onBrowseGameDir();
+  void onGameDirEdited(const QString& path);
   void onImportModeChanged(int index);
   void onAutoImportToggled(bool checked);
   void onAutoImportModeChanged(int index);
@@ -139,9 +140,11 @@ private:
   int selectedTagId() const;
   void updateTabButtonState(QPushButton* active);
   QString detectL4D2GameDirectory() const; // New helper method
-  QString normalizeAddonsPath(const QString& path) const; // 归一化 addons 路径，确保指向 addons 目录
-  void updateGamePathDisplays(const QString& rootPath); // 根据根目录更新 addons/workshop 展示路径
-  QString deriveGameRootFromAddons(const QString& addonsPath) const; // 从 addons 路径推导游戏根目录
+  QString deriveAddonsPath(const QString& rootPath) const; // 从根目录推导 addons 目录
+  QString deriveWorkshopPath(const QString& addonsPath) const; // 从 addons 目录推导 workshop 目录
+  void updateDerivedGamePaths(const QString& rootPath); // 根据根目录刷新展示
+  QString normalizeRootInput(const QString& rawPath) const; // 统一清理用户输入的根目录
+  bool ensureModFilesInRepository(ModRow& mod, QStringList& errors) const; // 按入库方式处理 MOD 文件与封面
 
   std::unique_ptr<RepositoryService> repo_;
   QString repoDir_;
@@ -181,8 +184,8 @@ private:
   QStackedWidget* settingsStack_{};
   QLineEdit* settingsRepoDirEdit_{};
   QPushButton* settingsRepoBrowseBtn_{};
-  QLineEdit* settingsGameRootEdit_{};
-  QPushButton* settingsGameRootBrowseBtn_{};
+  QLineEdit* settingsGameDirEdit_{};
+  QPushButton* settingsGameDirBrowseBtn_{};
   QLineEdit* settingsAddonsPathDisplay_{};
   QLineEdit* settingsWorkshopPathDisplay_{};
   QComboBox* importModeCombo_{};

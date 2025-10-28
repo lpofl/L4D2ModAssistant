@@ -60,6 +60,35 @@ AddonsAutoImportMethod stringToAddonsAutoImportMethod(const std::string& str) {
   return AddonsAutoImportMethod::Copy; // Default
 }
 
+// 新增工具函数：根据游戏目录推导 addons 与 workshop 路径（使用 std::filesystem）
+// 说明：
+// - 若传入路径本身以 "addons" 结尾，则视为 addons 目录；
+// - 若传入路径以 "left4dead2" 结尾，则 addons = <path>/addons；
+// - 否则视为游戏根目录，addons = <path>/left4dead2/addons；
+// - workshop 固定位于 addons/workshop 下。
+static std::string deriveAddonsPathFs(const std::string& root) {
+  if (root.empty()) return {};
+  std::filesystem::path p = std::filesystem::weakly_canonical(std::filesystem::path(root));
+  // 上述 canonical 可能失败，忽略异常，保底使用原始路径
+  std::error_code ec;
+  auto filename = p.filename().generic_string();
+  for (auto& c : filename) c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
+
+  if (filename == "addons") {
+    return p.string();
+  }
+  if (filename == "left4dead2") {
+    return (p / "addons").string();
+  }
+  return (p / "left4dead2" / "addons").string();
+}
+
+static std::string deriveWorkshopPathFs(const std::string& addonsPath) {
+  if (addonsPath.empty()) return {};
+  std::filesystem::path p(addonsPath);
+  return (p / "workshop").string();
+}
+
 } // namespace
 
 Settings Settings::loadOrCreate() {
@@ -80,6 +109,9 @@ Settings Settings::loadOrCreate() {
       settings.addonsAutoImportMethod = stringToAddonsAutoImportMethod(j.value("addonsAutoImportMethod", "Copy"));
       settings.combinerMemoryWarningMb = j.value("combinerMemoryWarningMb", 2048); // Default
       settings.retainDataOnDelete = j.value("retainDataOnDelete", true); // Default
+      // 基于 gameDirectory 推导并填充 addons/workshop 路径
+      settings.addonsPath = deriveAddonsPathFs(settings.gameDirectory); // 推导 addons 路径
+      settings.workshopPath = deriveWorkshopPathFs(settings.addonsPath); // 推导 workshop 路径
     } catch (const nlohmann::json::exception& e) {
       spdlog::error("Failed to parse settings file {}: {}", path.string(), e.what());
       // Fallback to default settings
@@ -91,6 +123,9 @@ Settings Settings::loadOrCreate() {
       settings.addonsAutoImportMethod = AddonsAutoImportMethod::Copy;
       settings.combinerMemoryWarningMb = 2048; // Default
       settings.retainDataOnDelete = true; // Default
+      // 推导路径为空
+      settings.addonsPath = {};
+      settings.workshopPath = {};
       // Write back defaults to recover a broken file
       settings.save();
     }
@@ -104,6 +139,8 @@ Settings Settings::loadOrCreate() {
     settings.addonsAutoImportMethod = AddonsAutoImportMethod::Copy;
     settings.combinerMemoryWarningMb = 2048; // Default
     settings.retainDataOnDelete = true; // Default
+    settings.addonsPath = {};
+    settings.workshopPath = {};
     settings.save(); // Save default settings
   }
   return settings;
@@ -114,6 +151,9 @@ void Settings::save() const {
   j["repoDir"] = repoDir;
   // New settings
   j["gameDirectory"] = gameDirectory;
+  // 持久化推导出的路径，便于其它模块直接读取
+  j["addonsPath"] = addonsPath;
+  j["workshopPath"] = workshopPath;
   j["importAction"] = importActionToString(importAction);
   j["addonsAutoImportEnabled"] = addonsAutoImportEnabled;
   j["addonsAutoImportMethod"] = addonsAutoImportMethodToString(addonsAutoImportMethod);
