@@ -43,6 +43,7 @@
 #include <QWidget>
 
 #include "app/ui/ModEditorDialog.h"
+#include "app/services/ApplicationInitializer.h" // 应用初始化与装配
 #include "core/config/Settings.h"
 #include "core/db/Db.h"
 #include "core/db/Migrations.h"
@@ -920,13 +921,13 @@ void MainWindow::setSettingsStatus(const QString& text, bool isError) {
 }
 
 void MainWindow::reinitializeRepository(const Settings& settings) {
+  // 应用装配下沉至 ApplicationInitializer，MainWindow 仅负责持有实例
   repoDir_ = QString::fromStdString(settings.repoDir);
   spdlog::info("Repo DB: {}", settings.repoDbPath);
-
-  auto db = std::make_shared<Db>(settings.repoDbPath);
-  runMigrations(*db);
-  spdlog::info("Schema ready, version {}", migrations::currentSchemaVersion(*db));
-  repo_ = std::make_unique<RepositoryService>(db);
+  repo_ = ApplicationInitializer::createRepositoryService(settings);
+  // 初始化与仓库目录相关的辅助服务/控制器
+  if (!importService_) importService_ = std::make_unique<ImportService>();
+  if (!randomizeController_ && repo_) randomizeController_ = std::make_unique<RandomizeController>(*repo_);
 
   reloadCategories();
   loadData();
@@ -1494,7 +1495,7 @@ void MainWindow::onImport() {
   }
   ModRow mod = dialog.modData();
   QStringList transferErrors;
-  if (!ensureModFilesInRepository(mod, transferErrors)) {
+  if (!importService_ || !importService_->ensureModFilesInRepository(settings_, mod, transferErrors)) {
     QMessageBox::warning(this, tr("导入失败"), transferErrors.join(QStringLiteral("\n")));
     return;
   }
@@ -1527,7 +1528,7 @@ void MainWindow::onEdit() {
 
   ModRow updated = dialog.modData();
   QStringList transferErrors;
-  if (!ensureModFilesInRepository(updated, transferErrors)) {
+  if (!importService_ || !importService_->ensureModFilesInRepository(settings_, updated, transferErrors)) {
     QMessageBox::warning(this, tr("保存失败"), transferErrors.join(QStringLiteral("\n")));
     return;
   }
@@ -1545,7 +1546,17 @@ void MainWindow::onConfigureStrategy() {
 }
 
 void MainWindow::onRandomize() {
-  // TODO: implement
+  // 调用控制器执行随机组合，此处仅展示一个最小可用流程，后续可由 Selector 页面接管展示
+  if (!randomizeController_) {
+    QMessageBox::warning(this, tr("未准备就绪"), tr("随机器尚未初始化"));
+    return;
+  }
+  RandomizerConfig cfg; // 使用默认配置，后续由 SelectorViewModel 提供配置来源
+  const auto result = randomizeController_->randomize(cfg);
+  QMessageBox::information(this, tr("随机完成"),
+                           tr("生成方案数：%1，合计大小：%2 MB")
+                               .arg(static_cast<int>(result.entries.size()))
+                               .arg(result.total_size_mb, 0, 'f', 1));
 }
 
 void MainWindow::onSaveCombination() {

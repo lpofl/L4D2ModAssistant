@@ -26,6 +26,12 @@ add_executable(L4D2ModAssistant
   app/ui/MainWindow.ui
   app/ui/ModEditorDialog.cpp
   app/ui/ModEditorDialog.h
+  app/services/ApplicationInitializer.cpp
+  app/services/ApplicationInitializer.h
+  app/services/ImportService.cpp
+  app/services/ImportService.h
+  app/ui/selector/RandomizeController.cpp
+  app/ui/selector/RandomizeController.h
   core/db/Db.cpp
   core/db/Db.h
   core/db/Stmt.h

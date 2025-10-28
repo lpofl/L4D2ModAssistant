@@ -9,6 +9,9 @@
 
 #include "core/config/Settings.h"
 #include "core/repo/RepositoryService.h"
+// 界面瘦身：引入应用服务/控制器头文件
+#include "app/services/ImportService.h"
+#include "app/ui/selector/RandomizeController.h"
 
 class QStackedWidget;
 class QLineEdit;
@@ -148,6 +151,9 @@ private:
 
   std::unique_ptr<RepositoryService> repo_;
   QString repoDir_;
+  // UI 层应用服务与控制器（减少 MainWindow 职责）
+  std::unique_ptr<ImportService> importService_;
+  std::unique_ptr<RandomizeController> randomizeController_;
 
   // Navigation
   QStackedWidget* stack_{};
