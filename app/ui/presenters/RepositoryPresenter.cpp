@@ -1,0 +1,815 @@
+#include "app/ui/presenters/RepositoryPresenter.h"
+
+#include <algorithm>
+
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDir>
+#include <QFileInfo>
+#include <QLabel>
+#include <QLineEdit>
+#include <QMap>
+#include <QMessageBox>
+#include <QPixmap>
+#include <QSortFilterProxyModel>
+#include <QStandardItem>
+#include <QStandardItemModel>
+#include <QTableWidgetItem>
+#include <QTextEdit>
+
+#include "app/services/ImportService.h"
+#include "app/ui/ModEditorDialog.h"
+#include "app/ui/components/ModFilterPanel.h"
+#include "app/ui/components/ModTableWidget.h"
+#include "app/ui/pages/RepositoryPage.h"
+#include "core/config/Settings.h"
+#include "core/repo/RepositoryService.h"
+#include "core/repo/TagDao.h"
+
+namespace {
+
+constexpr int kUncategorizedCategoryId = -1;
+constexpr int kUntaggedTagId = -1;
+
+QString toDisplay(const std::string& value, const QString& fallback = {}) {
+  return value.empty() ? fallback : QString::fromStdString(value);
+}
+
+QWidget* resolveParent(QWidget* preferred, QWidget* fallback) {
+  return preferred ? preferred : fallback;
+}
+
+} // namespace
+
+RepositoryPresenter::RepositoryPresenter(RepositoryPage* page,
+                                         Settings& settings,
+                                         QWidget* dialogParent,
+                                         QObject* parent)
+    : QObject(parent),
+      page_(page),
+      settings_(&settings),
+      dialogParent_(dialogParent) {
+  if (page_) {
+    filterPanel_ = page_->filterPanel();
+    if (filterPanel_) {
+      filterAttribute_ = filterPanel_->attributeCombo();
+      filterValue_ = filterPanel_->valueCombo();
+    }
+    showDeletedCheckBox_ = page_->showDeletedCheckBox();
+    modTable_ = page_->modTable();
+    coverLabel_ = page_->coverLabel();
+    metaLabel_ = page_->metaLabel();
+    noteView_ = page_->noteView();
+  }
+
+  filterModel_ = new QStandardItemModel(this);
+  filterProxy_ = new QSortFilterProxyModel(this);
+  filterProxy_->setFilterCaseSensitivity(Qt::CaseInsensitive);
+  filterProxy_->setFilterKeyColumn(0);
+  if (filterPanel_) {
+    filterPanel_->setValueModels(filterModel_, filterProxy_);
+  }
+
+  if (page_) {
+    connect(page_, &RepositoryPage::filterAttributeChanged, this, &RepositoryPresenter::handleFilterAttributeChanged);
+    connect(page_, &RepositoryPage::filterValueChanged, this, &RepositoryPresenter::handleFilterChanged);
+    connect(page_, &RepositoryPage::filterValueTextChanged, this, &RepositoryPresenter::handleFilterValueTextChanged);
+    connect(page_, &RepositoryPage::importRequested, this, &RepositoryPresenter::handleImportRequested);
+    connect(page_, &RepositoryPage::editRequested, this, &RepositoryPresenter::handleEditRequested);
+    connect(page_, &RepositoryPage::deleteRequested, this, &RepositoryPresenter::handleDeleteRequested);
+    connect(page_, &RepositoryPage::refreshRequested, this, &RepositoryPresenter::handleRefreshRequested);
+    connect(page_, &RepositoryPage::showDeletedToggled, this, &RepositoryPresenter::handleShowDeletedToggled);
+    connect(page_, &RepositoryPage::currentCellChanged, this, &RepositoryPresenter::handleCurrentCellChanged);
+  }
+}
+
+void RepositoryPresenter::setRepositoryService(RepositoryService* repo) {
+  repo_ = repo;
+}
+
+void RepositoryPresenter::setImportService(ImportService* service) {
+  importService_ = service;
+}
+
+void RepositoryPresenter::setRepositoryDirectory(const QString& path) {
+  repoDir_ = path;
+}
+
+void RepositoryPresenter::initializeFilters() {
+  if (filterAttribute_) {
+    filterAttribute_->clear();
+    filterAttribute_->addItems({tr("名称"), tr("分类"), tr("标签"), tr("作者"), tr("评分")});
+    filterAttribute_->setCurrentText(tr("名称"));
+  }
+  if (filterValue_) {
+    filterValue_->setEnabled(true);
+    if (auto* edit = filterValue_->lineEdit()) {
+      edit->setClearButtonEnabled(true);
+      edit->setPlaceholderText(tr("搜索名称"));
+    }
+  }
+}
+
+void RepositoryPresenter::reloadAll() {
+  reloadCategories();
+  loadData();
+  if (filterAttribute_) {
+    handleFilterAttributeChanged(filterAttribute_->currentText());
+  }
+}
+
+QString RepositoryPresenter::tagsTextForMod(int modId) const {
+  const auto it = modTagsText_.find(modId);
+  return it != modTagsText_.end() ? it->second : QString();
+}
+
+std::vector<TagDescriptor> RepositoryPresenter::tagsForMod(int modId) const {
+  std::vector<TagDescriptor> tags;
+  if (!repo_) {
+    return tags;
+  }
+  const auto rows = repo_->listTagsForMod(modId);
+  tags.reserve(rows.size());
+  for (const auto& row : rows) {
+    tags.push_back({row.group_name, row.name});
+  }
+  return tags;
+}
+
+QString RepositoryPresenter::categoryNameFor(int categoryId) const {
+  if (categoryId > 0) {
+    const auto it = categoryNames_.find(categoryId);
+    if (it != categoryNames_.end()) {
+      return it->second;
+    }
+    return QStringLiteral("Category#%1").arg(categoryId);
+  }
+  return tr("未分类");
+}
+
+bool RepositoryPresenter::modMatchesFilter(const ModRow& mod,
+                                           const QString& attribute,
+                                           int filterId,
+                                           const QString& filterValue) const {
+  if (attribute == tr("分类")) {
+    if (filterId == kUncategorizedCategoryId) {
+      return mod.category_id == 0;
+    }
+    if (filterId > 0) {
+      return categoryMatchesFilter(mod.category_id, filterId);
+    }
+    return true;
+  }
+
+  if (attribute == tr("名称")) {
+    if (filterValue.isEmpty()) {
+      return true;
+    }
+    const QString name = QString::fromStdString(mod.name);
+    return name.contains(filterValue, Qt::CaseInsensitive);
+  }
+
+  if (attribute == tr("标签")) {
+    const auto tagsIt = modTagsCache_.find(mod.id);
+    static const std::vector<TagWithGroupRow> kEmptyTags;
+    const auto& modTags = tagsIt != modTagsCache_.end() ? tagsIt->second : kEmptyTags;
+
+    if (filterId == kUntaggedTagId) {
+      return modTags.empty();
+    }
+    if (filterId > 0) {
+      const auto it = std::find_if(modTags.begin(), modTags.end(), [filterId](const TagWithGroupRow& tag) {
+        return tag.id == filterId;
+      });
+      return it != modTags.end();
+    }
+    return true;
+  }
+
+  if (attribute == tr("作者")) {
+    const QString authorFilter = filterValue.trimmed();
+    if (authorFilter.isEmpty()) {
+      return true;
+    }
+    return QString::fromStdString(mod.author) == authorFilter;
+  }
+
+  if (attribute == tr("评分")) {
+    if (filterId == 0) {
+      return true;
+    }
+    if (filterId > 0) {
+      return mod.rating == filterId;
+    }
+    return mod.rating <= 0;
+  }
+
+  return true;
+}
+
+void RepositoryPresenter::populateCategoryFilterModel(QStandardItemModel* model, bool updateCache) {
+  if (!repo_) {
+    return;
+  }
+
+  if (updateCache) {
+    categoryNames_.clear();
+    categoryParent_.clear();
+  }
+
+  if (model) {
+    model->clear();
+    auto* uncategorizedItem = new QStandardItem(tr("未分类"));
+    uncategorizedItem->setData(kUncategorizedCategoryId, Qt::UserRole);
+    model->appendRow(uncategorizedItem);
+  }
+
+  const auto categories = repo_->listCategories();
+  std::vector<CategoryRow> topLevel;
+  std::unordered_map<int, std::vector<CategoryRow>> children;
+
+  for (const auto& category : categories) {
+    if (updateCache) {
+      categoryNames_[category.id] = QString::fromStdString(category.name);
+      if (category.parent_id.has_value()) {
+        categoryParent_[category.id] = *category.parent_id;
+      }
+    }
+
+    if (category.parent_id.has_value()) {
+      children[*category.parent_id].push_back(category);
+    } else {
+      topLevel.push_back(category);
+    }
+  }
+
+  const auto compare = [](const CategoryRow& a, const CategoryRow& b) {
+    if (a.priority != b.priority) return a.priority < b.priority;
+    if (a.name != b.name) return a.name < b.name;
+    return a.id < b.id;
+  };
+  std::sort(topLevel.begin(), topLevel.end(), compare);
+  for (auto& entry : children) {
+    std::sort(entry.second.begin(), entry.second.end(), compare);
+  }
+
+  if (!model) {
+    return;
+  }
+
+  for (const auto& parent : topLevel) {
+    auto* parentItem = new QStandardItem(QString::fromStdString(parent.name));
+    parentItem->setData(parent.id, Qt::UserRole);
+    model->appendRow(parentItem);
+
+    const auto childIt = children.find(parent.id);
+    if (childIt == children.end()) continue;
+    for (const auto& child : childIt->second) {
+      auto* childItem = new QStandardItem(QStringLiteral("  ") + QString::fromStdString(child.name));
+      childItem->setData(child.id, Qt::UserRole);
+      model->appendRow(childItem);
+    }
+  }
+}
+
+void RepositoryPresenter::populateTagFilterModel(QStandardItemModel* model) const {
+  if (!model || !repo_) {
+    return;
+  }
+
+  model->clear();
+  auto* untaggedItem = new QStandardItem(tr("无标签"));
+  untaggedItem->setData(kUntaggedTagId, Qt::UserRole);
+  model->appendRow(untaggedItem);
+
+  const auto tags = repo_->listTags();
+  struct GroupBucket {
+    int id = 0;
+    QString name;
+    int priority = 0;
+    std::vector<TagWithGroupRow> tags;
+  };
+
+  std::unordered_map<int, GroupBucket> groupedTags;
+  for (const auto& tag : tags) {
+    auto& bucket = groupedTags[tag.group_id];
+    if (bucket.tags.empty()) {
+      bucket.id = tag.group_id;
+      bucket.name = QString::fromStdString(tag.group_name);
+      bucket.priority = tag.group_priority;
+    }
+    bucket.tags.push_back(tag);
+  }
+
+  std::vector<GroupBucket> buckets;
+  buckets.reserve(groupedTags.size());
+  for (auto& entry : groupedTags) {
+    auto& bucket = entry.second;
+    std::sort(bucket.tags.begin(), bucket.tags.end(), [](const TagWithGroupRow& a, const TagWithGroupRow& b) {
+      if (a.priority != b.priority) return a.priority < b.priority;
+      return a.name < b.name;
+    });
+    buckets.push_back(std::move(bucket));
+  }
+  std::sort(buckets.begin(), buckets.end(), [](const GroupBucket& a, const GroupBucket& b) {
+    if (a.priority != b.priority) return a.priority < b.priority;
+    return a.name < b.name;
+  });
+
+  for (const auto& bucket : buckets) {
+    for (const auto& tag : bucket.tags) {
+      auto* item = new QStandardItem(QStringLiteral("[%1] %2")
+                                         .arg(bucket.name, QString::fromStdString(tag.name)));
+      item->setData(tag.id, Qt::UserRole);
+      model->appendRow(item);
+    }
+  }
+}
+
+void RepositoryPresenter::populateAuthorFilterModel(QStandardItemModel* model) const {
+  if (!model) {
+    return;
+  }
+
+  model->clear();
+
+  QStringList authors;
+  authors.reserve(static_cast<int>(mods_.size()));
+  for (const auto& mod : mods_) {
+    if (!mod.author.empty()) {
+      const QString author = QString::fromStdString(mod.author);
+      if (!authors.contains(author)) {
+        authors.append(author);
+      }
+    }
+  }
+  authors.sort(Qt::CaseInsensitive);
+
+  for (const auto& author : authors) {
+    auto* item = new QStandardItem(author);
+    item->setData(author, Qt::UserRole);
+    model->appendRow(item);
+  }
+}
+
+void RepositoryPresenter::populateRatingFilterModel(QStandardItemModel* model) const {
+  if (!model) {
+    return;
+  }
+
+  model->clear();
+  auto* unratedItem = new QStandardItem(tr("未评分"));
+  unratedItem->setData(0, Qt::UserRole);
+  model->appendRow(unratedItem);
+
+  for (int rating = 1; rating <= 5; ++rating) {
+    auto* item = new QStandardItem(QString::number(rating));
+    item->setData(rating, Qt::UserRole);
+    model->appendRow(item);
+  }
+}
+
+void RepositoryPresenter::updateDetailForMod(int modId) {
+  if (!coverLabel_ || !metaLabel_ || !noteView_) {
+    return;
+  }
+
+  if (modId <= 0) {
+    coverLabel_->setPixmap(QPixmap());
+    coverLabel_->setText(tr("未选择 MOD"));
+    noteView_->clear();
+    metaLabel_->clear();
+    return;
+  }
+
+  if (!repo_) {
+    return;
+  }
+
+  const auto modOpt = repo_->findMod(modId);
+  if (!modOpt) {
+    coverLabel_->setPixmap(QPixmap());
+    coverLabel_->setText(tr("记录不存在"));
+    noteView_->clear();
+    metaLabel_->clear();
+    return;
+  }
+
+  const auto& mod = *modOpt;
+  const QString categoryName = categoryNameFor(mod.category_id);
+  QString tags;
+  const auto cacheIt = modTagsCache_.find(mod.id);
+  if (cacheIt != modTagsCache_.end()) {
+    tags = formatTagSummary(cacheIt->second, QStringLiteral("\n"), QStringLiteral(" / "));
+  } else if (repo_) {
+    auto rows = repo_->listTagsForMod(mod.id);
+    tags = formatTagSummary(rows, QStringLiteral("\n"), QStringLiteral(" / "));
+  }
+
+  coverLabel_->setText(QString());
+  QPixmap pix;
+  auto tryLoad = [&](const QString& path) -> bool {
+    if (path.isEmpty()) return false;
+    QFileInfo info(path);
+    if (!info.exists() && !repoDir_.isEmpty()) {
+      QDir dir(repoDir_);
+      info = QFileInfo(dir.absoluteFilePath(path));
+    }
+    if (info.exists() && info.isFile()) {
+      pix = QPixmap(info.absoluteFilePath());
+      if (!pix.isNull()) {
+        coverLabel_->setPixmap(pix.scaled(coverLabel_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        return true;
+      }
+    }
+    return false;
+  };
+  if (!tryLoad(QString::fromStdString(mod.cover_path))) {
+    coverLabel_->setPixmap(QPixmap());
+    coverLabel_->setText(tr("无预览"));
+  }
+
+  noteView_->setPlainText(QString::fromStdString(mod.note));
+
+  QStringList meta;
+  meta << tr("名称：%1").arg(QString::fromStdString(mod.name));
+  meta << tr("分类：%1").arg(categoryName.isEmpty() ? tr("未分类") : categoryName);
+  meta << tr("标签：%1").arg(tags.isEmpty() ? tr("无") : tags);
+  meta << tr("作者：%1").arg(toDisplay(mod.author, tr("未知")));
+  meta << tr("评分：%1").arg(mod.rating > 0 ? QString::number(mod.rating) : tr("未评分"));
+  meta << tr("大小：%1 MB").arg(QString::number(mod.size_mb, 'f', 2));
+  meta << tr("状态：%1").arg(toDisplay(mod.status, tr("未知")));
+  meta << tr("最后发布：%1").arg(toDisplay(mod.last_published_at, tr("-")));
+  meta << tr("最后保存：%1").arg(toDisplay(mod.last_saved_at, tr("-")));
+  meta << tr("安全性：%1").arg(toDisplay(mod.integrity, tr("-")));
+  meta << tr("稳定性：%1").arg(toDisplay(mod.stability, tr("-")));
+  meta << tr("获取方式：%1").arg(toDisplay(mod.acquisition_method, tr("-")));
+  if (!mod.source_platform.empty()) meta << tr("平台：%1").arg(QString::fromStdString(mod.source_platform));
+  if (!mod.source_url.empty()) meta << tr("链接：%1").arg(QString::fromStdString(mod.source_url));
+  if (!mod.file_path.empty()) meta << tr("文件：%1").arg(QString::fromStdString(mod.file_path));
+  if (!mod.file_hash.empty()) meta << tr("校验：%1").arg(QString::fromStdString(mod.file_hash));
+  metaLabel_->setText(meta.join('\n'));
+}
+
+int RepositoryPresenter::filterIdForCombo(const QComboBox* combo,
+                                          const QSortFilterProxyModel* proxy,
+                                          const QStandardItemModel* model) const {
+  if (!combo || !proxy || !model) {
+    return 0;
+  }
+  const int index = combo->currentIndex();
+  if (index < 0) {
+    return 0;
+  }
+  const QModelIndex proxyIndex = proxy->index(index, 0);
+  if (!proxyIndex.isValid()) {
+    return 0;
+  }
+  const QModelIndex sourceIndex = proxy->mapToSource(proxyIndex);
+  if (!sourceIndex.isValid()) {
+    return 0;
+  }
+  return model->data(sourceIndex, Qt::UserRole).toInt();
+}
+
+void RepositoryPresenter::handleRefreshRequested() {
+  reloadCategories();
+  loadData();
+}
+
+void RepositoryPresenter::handleImportRequested() {
+  if (!repo_) {
+    return;
+  }
+
+  ModEditorDialog dialog(*repo_, resolveParent(dialogParent_, page_));
+  if (dialog.exec() != QDialog::Accepted) {
+    return;
+  }
+
+  ModRow mod = dialog.modData();
+  QStringList transferErrors;
+  if (!importService_ || !importService_->ensureModFilesInRepository(*settings_, mod, transferErrors)) {
+    QMessageBox::warning(resolveParent(dialogParent_, page_), tr("导入失败"), transferErrors.join(QStringLiteral("\n")));
+    return;
+  }
+
+  try {
+    repo_->createModWithTags(mod, dialog.selectedTags());
+    loadData();
+  } catch (const std::exception& e) {
+    QMessageBox::warning(resolveParent(dialogParent_, page_), tr("导入失败"),
+                         tr("MOD 入库失败：%1").arg(QString::fromUtf8(e.what())));
+  }
+}
+
+void RepositoryPresenter::handleEditRequested() {
+  if (!repo_ || !modTable_) {
+    return;
+  }
+
+  auto* currentItem = modTable_->currentItem();
+  if (!currentItem) {
+    QMessageBox::information(resolveParent(dialogParent_, page_), tr("未选择"), tr("请先选择一个 MOD。"));
+    return;
+  }
+
+  const int modId = modTable_->item(modTable_->currentRow(), 0)->data(Qt::UserRole).toInt();
+  auto modOpt = repo_->findMod(modId);
+  if (!modOpt) {
+    QMessageBox::warning(resolveParent(dialogParent_, page_), tr("缺失"), tr("该 MOD 记录已不存在。"));
+    loadData();
+    return;
+  }
+
+  ModEditorDialog dialog(*repo_, resolveParent(dialogParent_, page_));
+  dialog.setMod(*modOpt, tagsForMod(modId));
+  if (dialog.exec() != QDialog::Accepted) {
+    return;
+  }
+
+  ModRow updated = dialog.modData();
+  QStringList transferErrors;
+  if (!importService_ || !importService_->ensureModFilesInRepository(*settings_, updated, transferErrors)) {
+    QMessageBox::warning(resolveParent(dialogParent_, page_), tr("更新失败"), transferErrors.join(QStringLiteral("\n")));
+    return;
+  }
+
+  try {
+    repo_->updateModWithTags(updated, dialog.selectedTags());
+    loadData();
+    updateDetailForMod(updated.id);
+  } catch (const std::exception& e) {
+    QMessageBox::warning(resolveParent(dialogParent_, page_), tr("更新失败"),
+                         tr("MOD 更新失败：%1").arg(QString::fromUtf8(e.what())));
+  }
+}
+
+void RepositoryPresenter::handleDeleteRequested() {
+  if (!repo_ || !modTable_) {
+    return;
+  }
+
+  auto* item = modTable_->currentItem();
+  if (!item) {
+    return;
+  }
+  const int modId = modTable_->item(modTable_->currentRow(), 0)->data(Qt::UserRole).toInt();
+
+  const auto reply = QMessageBox::question(resolveParent(dialogParent_, page_), tr("删除 MOD"),
+                                           tr("是否仅标记为已删除？"), QMessageBox::Yes | QMessageBox::No);
+  if (reply != QMessageBox::Yes) {
+    return;
+  }
+
+  repo_->setModDeleted(modId, true);
+  loadData();
+}
+
+void RepositoryPresenter::handleShowDeletedToggled(bool /*checked*/) {
+  populateTable();
+}
+
+void RepositoryPresenter::handleFilterAttributeChanged(const QString& attribute) {
+  if (!filterValue_ || !filterModel_ || !filterProxy_) {
+    return;
+  }
+
+  suppressFilterSignals_ = true;
+  filterValue_->blockSignals(true);
+
+  filterModel_->clear();
+  filterProxy_->setFilterFixedString(QString());
+
+  QString placeholder;
+
+  if (attribute == tr("名称")) {
+    filterValue_->setEnabled(true);
+    placeholder = tr("搜索名称");
+  } else if (attribute == tr("分类")) {
+    filterValue_->setEnabled(true);
+    reloadCategories();
+    placeholder = tr("选择分类");
+  } else if (attribute == tr("标签")) {
+    filterValue_->setEnabled(true);
+    reloadTags();
+    placeholder = tr("选择标签");
+  } else if (attribute == tr("作者")) {
+    filterValue_->setEnabled(true);
+    reloadAuthors();
+    placeholder = tr("选择作者");
+  } else if (attribute == tr("评分")) {
+    filterValue_->setEnabled(true);
+    reloadRatings();
+    placeholder = tr("选择评分");
+  } else {
+    filterValue_->setEnabled(false);
+  }
+
+  filterValue_->setModel(nullptr);
+  filterValue_->setModel(filterProxy_);
+  filterValue_->setEditText(QString());
+  filterValue_->setCurrentIndex(-1);
+
+  if (auto* lineEdit = filterValue_->lineEdit()) {
+    lineEdit->setPlaceholderText(placeholder);
+  }
+
+  filterValue_->blockSignals(false);
+  suppressFilterSignals_ = false;
+
+  populateTable();
+}
+
+void RepositoryPresenter::handleFilterValueTextChanged(const QString& text) {
+  if (!filterProxy_ || suppressFilterSignals_) {
+    return;
+  }
+  filterProxy_->setFilterFixedString(text);
+
+  const QString currentFilter = filterAttribute_ ? filterAttribute_->currentText() : QString();
+  if ((currentFilter == tr("名称") || currentFilter == tr("标签")) && filterValue_ && filterValue_->lineEdit()) {
+    if (filterValue_->lineEdit()->hasFocus()) {
+      filterValue_->showPopup();
+    }
+  }
+}
+
+void RepositoryPresenter::handleFilterChanged(const QString& /*text*/) {
+  if (!suppressFilterSignals_) {
+    populateTable();
+  }
+}
+
+void RepositoryPresenter::handleCurrentCellChanged(int currentRow,
+                                                   int currentColumn,
+                                                   int previousRow,
+                                                   int previousColumn) {
+  Q_UNUSED(currentColumn);
+  Q_UNUSED(previousRow);
+  Q_UNUSED(previousColumn);
+
+  if (!modTable_) {
+    return;
+  }
+  if (currentRow < 0) {
+    updateDetailForMod(-1);
+    return;
+  }
+  auto* item = modTable_->item(currentRow, 0);
+  if (!item) {
+    updateDetailForMod(-1);
+    return;
+  }
+  updateDetailForMod(item->data(Qt::UserRole).toInt());
+}
+
+void RepositoryPresenter::loadData() {
+  if (!repo_) {
+    return;
+  }
+
+  mods_ = repo_->listAll(true);
+  modTagsText_.clear();
+  modTagsCache_.clear();
+  for (const auto& mod : mods_) {
+    auto tagRows = repo_->listTagsForMod(mod.id);
+    modTagsCache_[mod.id] = tagRows;
+    modTagsText_[mod.id] = formatTagSummary(tagRows, QStringLiteral("  |  "), QStringLiteral(" / "));
+  }
+
+  populateTable();
+  emit modsReloaded();
+}
+
+void RepositoryPresenter::populateTable() {
+  if (!modTable_ || !filterAttribute_ || !filterValue_) {
+    return;
+  }
+
+  modTable_->setRowCount(0);
+
+  const QString filterAttribute = filterAttribute_->currentText();
+  const QString filterValueText = filterValue_->currentText();
+  const int filterId = filterIdForCombo(filterValue_, filterProxy_, filterModel_);
+
+  int row = 0;
+  for (const auto& mod : mods_) {
+    if (showDeletedCheckBox_ && !showDeletedCheckBox_->isChecked() && mod.is_deleted) {
+      continue;
+    }
+
+    if (!modMatchesFilter(mod, filterAttribute, filterId, filterValueText)) {
+      continue;
+    }
+
+    const QString name = QString::fromStdString(mod.name);
+    const QString author = toDisplay(mod.author);
+    const QString status = toDisplay(mod.status, tr("未知"));
+    const QString lastPublished = toDisplay(mod.last_published_at, tr("-"));
+    const QString lastSaved = toDisplay(mod.last_saved_at, tr("-"));
+    const QString platform = toDisplay(mod.source_platform);
+    const QString url = toDisplay(mod.source_url);
+    const QString note = toDisplay(mod.note);
+    const QString integrity = toDisplay(mod.integrity);
+    const QString stability = toDisplay(mod.stability);
+    const QString acquisition = toDisplay(mod.acquisition_method);
+    const QString tags = tagsTextForMod(mod.id);
+
+    modTable_->insertRow(row);
+    auto* itemName = new QTableWidgetItem(name);
+    itemName->setData(Qt::UserRole, mod.id);
+    modTable_->setItem(row, 0, itemName);
+    modTable_->setItem(row, 1, new QTableWidgetItem(categoryNameFor(mod.category_id)));
+    modTable_->setItem(row, 2, new QTableWidgetItem(tags));
+    modTable_->setItem(row, 3, new QTableWidgetItem(author));
+    modTable_->setItem(row, 4, new QTableWidgetItem(mod.rating > 0 ? QString::number(mod.rating) : QString("-")));
+    modTable_->setItem(row, 5, new QTableWidgetItem(status));
+    modTable_->setItem(row, 6, new QTableWidgetItem(lastPublished));
+    modTable_->setItem(row, 7, new QTableWidgetItem(lastSaved));
+    modTable_->setItem(row, 8, new QTableWidgetItem(platform));
+    modTable_->setItem(row, 9, new QTableWidgetItem(url));
+    modTable_->setItem(row, 10, new QTableWidgetItem(integrity.isEmpty() ? tr("-") : integrity));
+    modTable_->setItem(row, 11, new QTableWidgetItem(stability.isEmpty() ? tr("-") : stability));
+    modTable_->setItem(row, 12, new QTableWidgetItem(acquisition.isEmpty() ? tr("-") : acquisition));
+    modTable_->setItem(row, 13, new QTableWidgetItem(note));
+    ++row;
+  }
+
+  if (modTable_->rowCount() > 0) {
+    modTable_->setCurrentCell(0, 0);
+  } else {
+    updateDetailForMod(-1);
+  }
+}
+
+void RepositoryPresenter::reloadCategories() {
+  const bool usingCategoryFilter = filterAttribute_ && filterAttribute_->currentText() == tr("分类");
+  if (!usingCategoryFilter && filterModel_) {
+    filterModel_->clear();
+  }
+  populateCategoryFilterModel(usingCategoryFilter ? filterModel_ : nullptr, true);
+}
+
+void RepositoryPresenter::reloadTags() {
+  populateTagFilterModel(filterModel_);
+}
+
+void RepositoryPresenter::reloadAuthors() {
+  populateAuthorFilterModel(filterModel_);
+}
+
+void RepositoryPresenter::reloadRatings() {
+  populateRatingFilterModel(filterModel_);
+}
+
+QString RepositoryPresenter::formatTagSummary(const std::vector<TagWithGroupRow>& rows,
+                                              const QString& groupSeparator,
+                                              const QString& tagSeparator) const {
+  if (rows.empty()) {
+    return {};
+  }
+
+  QMap<QString, QStringList> grouped;
+  for (const auto& row : rows) {
+    const QString groupName = QString::fromStdString(row.group_name);
+    const QString tagName = QString::fromStdString(row.name);
+    QStringList& list = grouped[groupName];
+    if (!list.contains(tagName)) {
+      list.append(tagName);
+    }
+  }
+
+  QStringList sections;
+  for (auto it = grouped.constBegin(); it != grouped.constEnd(); ++it) {
+    QStringList tags = it.value();
+    std::sort(tags.begin(), tags.end(), [](const QString& a, const QString& b) {
+      return a.localeAwareCompare(b) < 0;
+    });
+    sections << QString("%1: %2").arg(it.key(), tags.join(tagSeparator));
+  }
+  return sections.join(groupSeparator);
+}
+
+bool RepositoryPresenter::categoryMatchesFilter(int modCategoryId, int filterCategoryId) const {
+  if (filterCategoryId == kUncategorizedCategoryId) {
+    return modCategoryId == 0;
+  }
+  if (filterCategoryId <= 0) {
+    return true;
+  }
+
+  int currentId = modCategoryId;
+  while (currentId > 0) {
+    if (currentId == filterCategoryId) {
+      return true;
+    }
+    const auto it = categoryParent_.find(currentId);
+    if (it == categoryParent_.end()) {
+      break;
+    }
+    currentId = it->second;
+  }
+  return false;
+}
+

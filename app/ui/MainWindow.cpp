@@ -43,6 +43,13 @@
 #include <QWidget>
 
 #include "app/ui/ModEditorDialog.h"
+#include "app/ui/components/ModFilterPanel.h"
+#include "app/ui/components/ModTableWidget.h"
+#include "app/ui/components/NavigationBar.h"
+#include "app/ui/pages/RepositoryPage.h"
+#include "app/ui/pages/SelectorPage.h"
+#include "app/ui/presenters/RepositoryPresenter.h"
+#include "app/ui/presenters/SelectorPresenter.h"
 #include "app/services/ApplicationInitializer.h" // 应用初始化与装配
 #include "core/config/Settings.h"
 #include "core/db/Db.h"
@@ -54,25 +61,14 @@
 
 namespace {
 
-constexpr int kUncategorizedCategoryId = -1;
-constexpr int kUntaggedTagId = -1;
-
-QString joinTags(const std::vector<TagWithGroupRow>& tags) {
-  QStringList parts;
-  parts.reserve(static_cast<int>(tags.size()));
-  for (const auto& tag : tags) {
-    const QString group = QString::fromStdString(tag.group_name);
-    const QString name = QString::fromStdString(tag.name);
-    parts.push_back(group + u":" + name);
-  }
-  return parts.join(" / ");
-}
 
 QString toDisplay(const std::string& value, const QString& fallback = {}) {
   return value.empty() ? fallback : QString::fromStdString(value);
 }
 
 } // namespace
+
+MainWindow::~MainWindow() = default;
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   setupUi();
@@ -161,283 +157,51 @@ void MainWindow::setupUi() {
   rootLayout->setContentsMargins(12, 12, 12, 12);
   rootLayout->setSpacing(12);
 
-  rootLayout->addWidget(buildNavigationBar());
+  navigationBar_ = new NavigationBar(central);
+  rootLayout->addWidget(navigationBar_);
+
+  connect(navigationBar_, &NavigationBar::repositoryRequested, this, &MainWindow::switchToRepository);
+  connect(navigationBar_, &NavigationBar::selectorRequested, this, &MainWindow::switchToSelector);
+  connect(navigationBar_, &NavigationBar::settingsRequested, this, &MainWindow::switchToSettings);
 
   stack_ = new QStackedWidget(central);
-  stack_->addWidget(buildRepositoryPage());
-  stack_->addWidget(buildSelectorPage());
+  repositoryPage_ = new RepositoryPage(stack_);
+  stack_->addWidget(repositoryPage_);
+  repoFilterPanel_ = repositoryPage_->filterPanel();
+  filterAttribute_ = repoFilterPanel_ ? repoFilterPanel_->attributeCombo() : nullptr;
+  filterValue_ = repoFilterPanel_ ? repoFilterPanel_->valueCombo() : nullptr;
+  showDeletedModsCheckBox_ = repositoryPage_->showDeletedCheckBox();
+  modTable_ = repositoryPage_->modTable();
+  importBtn_ = repositoryPage_->importButton();
+  editBtn_ = repositoryPage_->editButton();
+  deleteBtn_ = repositoryPage_->deleteButton();
+  refreshBtn_ = repositoryPage_->refreshButton();
+  coverLabel_ = repositoryPage_->coverLabel();
+  metaLabel_ = repositoryPage_->metaLabel();
+  noteView_ = repositoryPage_->noteView();
+
+  // 选择器页装配，界面与业务逻辑转交给 SelectorPage/SelectorPresenter
+  selectorPage_ = new SelectorPage(stack_);
+  stack_->addWidget(selectorPage_);
+  selectorPresenter_ = std::make_unique<SelectorPresenter>(selectorPage_, this);
+  selectorPresenter_->initializeFilters();
+
+  configureStrategyBtn_ = selectorPage_->configureStrategyButton();
+  randomizeBtn_ = selectorPage_->randomizeButton();
+  saveCombinationBtn_ = selectorPage_->saveCombinationButton();
+  applyToGameBtn_ = selectorPage_->applyButton();
+  strategyInfoLabel_ = selectorPage_->strategyInfoLabel();
+
+  connect(selectorPage_, &SelectorPage::configureStrategyRequested, this, &MainWindow::onConfigureStrategy);
+  connect(selectorPage_, &SelectorPage::randomizeRequested, this, &MainWindow::onRandomize);
+  connect(selectorPage_, &SelectorPage::saveCombinationRequested, this, &MainWindow::onSaveCombination);
+  connect(selectorPage_, &SelectorPage::applyRequested, this, &MainWindow::onApplyToGame);
   stack_->addWidget(buildSettingsPage());
   rootLayout->addWidget(stack_, 1);
 
   setCentralWidget(central);
   resize(1280, 760);
   setWindowTitle(QStringLiteral("L4D2 MOD 助手"));
-
-  filterModel_ = new QStandardItemModel(this);
-  proxyModel_ = new QSortFilterProxyModel(this);
-  proxyModel_->setSourceModel(filterModel_);
-  proxyModel_->setFilterCaseSensitivity(Qt::CaseInsensitive);
-  proxyModel_->setFilterKeyColumn(0);
-  filterValue_->setModel(proxyModel_);
-  filterValue_->setCompleter(nullptr);
-
-  selectorFilterModel_ = new QStandardItemModel(this);
-  selectorProxyModel_ = new QSortFilterProxyModel(this);
-  selectorProxyModel_->setSourceModel(selectorFilterModel_);
-  selectorProxyModel_->setFilterCaseSensitivity(Qt::CaseInsensitive);
-  selectorProxyModel_->setFilterKeyColumn(0);
-  if (selectorFilterValue_) {
-    selectorFilterValue_->setModel(selectorProxyModel_);
-    selectorFilterValue_->setCompleter(nullptr);
-  }
-
-  filterAttribute_->addItems({tr("名称"), tr("分类"), tr("标签"), tr("作者"), tr("评分")});
-  filterAttribute_->setCurrentText(tr("名称"));
-
-  if (selectorFilterAttribute_) {
-    selectorFilterAttribute_->addItems({tr("名称"), tr("分类"), tr("标签"), tr("作者"), tr("评分")});
-    selectorFilterAttribute_->setCurrentText(tr("分类"));
-  }
-}
-
-QWidget* MainWindow::buildNavigationBar() {
-  auto* bar = new QWidget(this);
-  auto* layout = new QHBoxLayout(bar);
-  layout->setContentsMargins(0, 0, 0, 0);
-  layout->setSpacing(8);
-
-  repoButton_ = new QPushButton(tr("仓库"), bar);
-  selectorButton_ = new QPushButton(tr("选择器"), bar);
-  settingsButton_ = new QPushButton(tr("设置"), bar);
-
-  layout->addWidget(repoButton_);
-  layout->addWidget(selectorButton_);
-  layout->addWidget(settingsButton_);
-  layout->addStretch();
-
-  connect(repoButton_, &QPushButton::clicked, this, &MainWindow::switchToRepository);
-  connect(selectorButton_, &QPushButton::clicked, this, &MainWindow::switchToSelector);
-  connect(settingsButton_, &QPushButton::clicked, this, &MainWindow::switchToSettings);
-
-  updateTabButtonState(repoButton_);
-  return bar;
-}
-
-QWidget* MainWindow::buildRepositoryPage() {
-  auto* page = new QWidget(this);
-  auto* layout = new QVBoxLayout(page);
-  layout->setContentsMargins(0, 0, 0, 0);
-  layout->setSpacing(8);
-
-  auto* filterRow = new QHBoxLayout();
-  filterAttribute_ = new QComboBox(page);
-  filterValue_ = new QComboBox(page);
-  filterValue_->setEditable(true);
-  filterValue_->lineEdit()->setClearButtonEnabled(true);
-
-  importBtn_ = new QPushButton(tr("导入"), page);
-  filterRow->addWidget(new QLabel(tr("过滤器:"), page));
-  filterRow->addWidget(filterAttribute_, 1);
-  filterRow->addWidget(filterValue_, 2);
-
-  showDeletedModsCheckBox_ = new QCheckBox(tr("显示已删除"), page);
-  filterRow->addWidget(showDeletedModsCheckBox_);
-
-  filterRow->addStretch(1);
-  filterRow->addWidget(importBtn_);
-  layout->addLayout(filterRow);
-
-  auto* splitter = new QSplitter(Qt::Horizontal, page);
-
-  auto* leftPanel = new QWidget(splitter);
-  auto* leftLayout = new QVBoxLayout(leftPanel);
-  leftLayout->setContentsMargins(0, 0, 0, 0);
-  leftLayout->setSpacing(8);
-
-  modTable_ = new QTableWidget(leftPanel);
-  modTable_->setColumnCount(14);
-  modTable_->setHorizontalHeaderLabels({tr("名称"),
-                                        tr("分类"),
-                                        tr("标签"),
-                                        tr("作者"),
-                                        tr("评分"),
-                                        tr("状态"),
-                                        tr("最后发布日"),
-                                        tr("最后保存日"),
-                                        tr("平台"),
-                                        tr("链接"),
-                                        tr("健全度"),
-                                        tr("稳定性"),
-                                        tr("获取方式"),
-                                        tr("备注")});
-  modTable_->horizontalHeader()->setStretchLastSection(true);
-  modTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-  modTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
-  modTable_->setSelectionMode(QAbstractItemView::SingleSelection);
-  modTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-  modTable_->setAlternatingRowColors(true);
-  modTable_->verticalHeader()->setVisible(false);
-  modTable_->setStyleSheet(
-      "QTableWidget::item:selected {"
-      " background-color: #D6EBFF;"
-      " color: #1f3556;"
-      " }"
-      "QTableWidget::item:selected:!active {"
-      " background-color: #E6F3FF;"
-      " }");
-
-  leftLayout->addWidget(modTable_, 1);
-
-  auto* actionRow = new QHBoxLayout();
-  editBtn_ = new QPushButton(tr("编辑"), leftPanel);
-  deleteBtn_ = new QPushButton(tr("删除"), leftPanel);
-  refreshBtn_ = new QPushButton(tr("刷新"), leftPanel);
-  actionRow->addWidget(editBtn_);
-  actionRow->addWidget(deleteBtn_);
-  actionRow->addStretch();
-  actionRow->addWidget(refreshBtn_);
-  leftLayout->addLayout(actionRow);
-
-  leftPanel->setLayout(leftLayout);
-
-  auto* rightPanel = new QWidget(splitter);
-  auto* rightLayout = new QVBoxLayout(rightPanel);
-  rightLayout->setContentsMargins(0, 0, 0, 0);
-  rightLayout->setSpacing(12);
-
-  coverLabel_ = new QLabel(tr("当前 MOD 图片"), rightPanel);
-  coverLabel_->setAlignment(Qt::AlignCenter);
-  coverLabel_->setMinimumSize(280, 240);
-  coverLabel_->setStyleSheet("QLabel { background: #1f5f7f; color: white; border-radius: 6px; }");
-
-  metaLabel_ = new QLabel(rightPanel);
-  metaLabel_->setWordWrap(true);
-
-  noteView_ = new QTextEdit(rightPanel);
-  noteView_->setReadOnly(true);
-  noteView_->setPlaceholderText(tr("当前 MOD 备注"));
-
-  rightLayout->addWidget(coverLabel_);
-  rightLayout->addWidget(metaLabel_);
-  rightLayout->addWidget(noteView_, 1);
-  rightPanel->setLayout(rightLayout);
-
-  splitter->addWidget(leftPanel);
-  splitter->addWidget(rightPanel);
-  splitter->setStretchFactor(0, 3);
-  splitter->setStretchFactor(1, 2);
-
-  layout->addWidget(splitter, 1);
-
-  connect(modTable_, &QTableWidget::currentCellChanged, this, &MainWindow::onCurrentRowChanged);
-  connect(filterAttribute_, &QComboBox::currentTextChanged, this, &MainWindow::onFilterAttributeChanged);
-  connect(filterValue_, &QComboBox::currentTextChanged, this, &MainWindow::onFilterChanged);
-  connect(filterValue_->lineEdit(), &QLineEdit::textChanged, this, &MainWindow::onFilterValueTextChanged);
-  connect(importBtn_, &QPushButton::clicked, this, &MainWindow::onImport);
-  connect(editBtn_, &QPushButton::clicked, this, &MainWindow::onEdit);
-  connect(deleteBtn_, &QPushButton::clicked, this, &MainWindow::onDelete);
-  connect(refreshBtn_, &QPushButton::clicked, this, &MainWindow::onRefresh);
-  connect(showDeletedModsCheckBox_, &QCheckBox::toggled, this, &MainWindow::onShowDeletedModsToggled);
-
-  return page;
-}
-
-QWidget* MainWindow::buildSelectorPage() {
-  auto* page = new QWidget(this);
-  auto* layout = new QVBoxLayout(page);
-  layout->setSpacing(12);
-
-  // 顶部过滤器行，与仓库页面保持一致的体验
-  auto* filterRow = new QHBoxLayout();
-  filterRow->setSpacing(8);
-  filterRow->addWidget(new QLabel(tr("过滤器:"), page));
-  selectorFilterAttribute_ = new QComboBox(page);
-  selectorFilterValue_ = new QComboBox(page);
-  selectorFilterValue_->setEditable(true);
-  selectorFilterValue_->lineEdit()->setClearButtonEnabled(true);
-  filterRow->addWidget(selectorFilterAttribute_, 1);
-  filterRow->addWidget(selectorFilterValue_, 2);
-  layout->addLayout(filterRow);
-
-  auto* tablesLayout = new QHBoxLayout();
-  tablesLayout->setSpacing(12);
-
-  // Left panel (Game Directory)
-  auto* leftPanel = new QWidget(page);
-  auto* leftLayout = new QVBoxLayout(leftPanel);
-  leftLayout->setContentsMargins(0, 0, 0, 0);
-  leftLayout->setSpacing(8);
-
-  auto* gameDirLabel = new QLabel(tr("游戏目录"), leftPanel);
-  gameDirTable_ = new QTableWidget(leftPanel);
-
-  gameDirTable_->setColumnCount(5);
-  gameDirTable_->setHorizontalHeaderLabels({tr("名称"), tr("TAG"), tr("作者"), tr("评分"), tr("备注")});
-  gameDirTable_->horizontalHeader()->setStretchLastSection(true);
-  gameDirTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-  gameDirTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
-  gameDirTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-  gameDirTable_->setAlternatingRowColors(true);
-  gameDirTable_->verticalHeader()->setVisible(false);
-
-  leftLayout->addWidget(gameDirLabel);
-  leftLayout->addWidget(gameDirTable_);
-
-  // Right panel (Repository)
-  auto* rightPanel = new QWidget(page);
-  auto* rightLayout = new QVBoxLayout(rightPanel);
-  rightLayout->setContentsMargins(0, 0, 0, 0);
-  rightLayout->setSpacing(8);
-
-  auto* repoLabel = new QLabel(tr("仓库"), rightPanel);
-  repoTable_ = new QTableWidget(rightPanel);
-  repoTable_->setColumnCount(5);
-  repoTable_->setHorizontalHeaderLabels({tr("名称"), tr("TAG"), tr("作者"), tr("评分"), tr("备注")});
-  repoTable_->horizontalHeader()->setStretchLastSection(true);
-  repoTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-  repoTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
-  repoTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-  repoTable_->setAlternatingRowColors(true);
-  repoTable_->verticalHeader()->setVisible(false);
-
-  rightLayout->addWidget(repoLabel);
-  rightLayout->addWidget(repoTable_);
-
-  tablesLayout->addWidget(leftPanel);
-  tablesLayout->addWidget(rightPanel);
-
-  layout->addLayout(tablesLayout);
-
-  // Bottom buttons
-  auto* buttonsLayout = new QHBoxLayout();
-  buttonsLayout->setSpacing(12);
-
-  configureStrategyBtn_ = new QPushButton(tr("配置策略"), page);
-  randomizeBtn_ = new QPushButton(tr("随机一组"), page);
-  saveCombinationBtn_ = new QPushButton(tr("保存组合"), page);
-  applyToGameBtn_ = new QPushButton(tr("确认应用"), page);
-  strategyInfoLabel_ = new QLabel(tr("已选策略信息"), page);
-
-  buttonsLayout->addWidget(configureStrategyBtn_);
-  buttonsLayout->addWidget(strategyInfoLabel_, 1);
-  buttonsLayout->addStretch();
-  buttonsLayout->addWidget(randomizeBtn_);
-  buttonsLayout->addWidget(saveCombinationBtn_);
-  buttonsLayout->addStretch();
-  buttonsLayout->addWidget(applyToGameBtn_);
-
-  layout->addLayout(buttonsLayout);
-
-  connect(selectorFilterAttribute_, &QComboBox::currentTextChanged, this, &MainWindow::onSelectorFilterAttributeChanged);
-  connect(selectorFilterValue_, &QComboBox::currentTextChanged, this, &MainWindow::onSelectorFilterChanged);
-  connect(selectorFilterValue_->lineEdit(), &QLineEdit::textChanged, this, &MainWindow::onSelectorFilterValueTextChanged);
-
-  connect(configureStrategyBtn_, &QPushButton::clicked, this, &MainWindow::onConfigureStrategy);
-  connect(randomizeBtn_, &QPushButton::clicked, this, &MainWindow::onRandomize);
-  connect(saveCombinationBtn_, &QPushButton::clicked, this, &MainWindow::onSaveCombination);
-  connect(applyToGameBtn_, &QPushButton::clicked, this, &MainWindow::onApplyToGame);
-
-  return page;
 }
 
 QWidget* MainWindow::buildSettingsPage() {
@@ -921,20 +685,31 @@ void MainWindow::setSettingsStatus(const QString& text, bool isError) {
 }
 
 void MainWindow::reinitializeRepository(const Settings& settings) {
-  // 应用装配下沉至 ApplicationInitializer，MainWindow 仅负责持有实例
   repoDir_ = QString::fromStdString(settings.repoDir);
   spdlog::info("Repo DB: {}", settings.repoDbPath);
   repo_ = ApplicationInitializer::createRepositoryService(settings);
-  // 初始化与仓库目录相关的辅助服务/控制器
-  if (!importService_) importService_ = std::make_unique<ImportService>();
-  if (!randomizeController_ && repo_) randomizeController_ = std::make_unique<RandomizeController>(*repo_);
+  if (!importService_) {
+    importService_ = std::make_unique<ImportService>();
+  }
+  if (!randomizeController_ && repo_) {
+    randomizeController_ = std::make_unique<RandomizeController>(*repo_);
+  }
 
-  reloadCategories();
-  loadData();
-  reloadRepoSelectorData();
+  if (!repositoryPresenter_) {
+    repositoryPresenter_ = std::make_unique<RepositoryPresenter>(repositoryPage_, settings_, this, this);
+    connect(repositoryPresenter_.get(), &RepositoryPresenter::modsReloaded, this, &MainWindow::onRepositoryModsReloaded);
+    repositoryPresenter_->initializeFilters();
+  }
 
-  // 初始化时主动触发一次过滤器刷新，确保搜索框保持空白以显示占位提示
-  onFilterAttributeChanged(filterAttribute_->currentText());
+  repositoryPresenter_->setRepositoryService(repo_.get());
+  repositoryPresenter_->setImportService(importService_.get());
+  repositoryPresenter_->setRepositoryDirectory(repoDir_);
+  repositoryPresenter_->reloadAll();
+
+  if (selectorPresenter_) {
+    selectorPresenter_->setRepositoryPresenter(repositoryPresenter_.get());
+    selectorPresenter_->refreshRepositoryData();
+  }
 }
 
 int MainWindow::selectedCategoryId() const {
@@ -967,575 +742,40 @@ int MainWindow::selectedTagId() const {
   return 0;
 }
 
-void MainWindow::reloadCategories() {
-  categoryNames_.clear();
-  categoryParent_.clear();
-  const bool usingCategoryFilter =
-      filterAttribute_ && filterAttribute_->currentText() == tr("分类");
-  if (!usingCategoryFilter && filterModel_) {
-    filterModel_->clear();
-  }
-  populateCategoryFilterModel(usingCategoryFilter ? filterModel_ : nullptr, true);
-}
 
-void MainWindow::loadData() {
-  // Always load all mods, including deleted ones, for client-side filtering.
-  mods_ = repo_->listAll(true);
-  modTagsText_.clear();
-  modTagsCache_.clear();
-  for (const auto& mod : mods_) {
-    auto tagRows = repo_->listTagsForMod(mod.id);
-    modTagsCache_[mod.id] = tagRows;
-    modTagsText_[mod.id] = formatTagSummary(tagRows, QStringLiteral("  |  "), QStringLiteral(" / "));
-  }
-  populateTable();
-  applySelectorFilter();
-}
 
-void MainWindow::populateTable() {
-  modTable_->setRowCount(0);
 
-  const QString filterAttribute = filterAttribute_->currentText();
-  const QString filterValueText = filterValue_->currentText();
-  const int filterId = filterIdForCombo(filterValue_, proxyModel_, filterModel_);
-
-  int row = 0;
-  for (const auto& mod : mods_) {
-    // Filter by deleted status
-    if (!showDeletedModsCheckBox_->isChecked() && mod.is_deleted) {
-      continue;
-    }
-
-    if (!modMatchesFilter(mod, filterAttribute, filterId, filterValueText)) {
-      continue;
-    }
-
-    const QString name = QString::fromStdString(mod.name);
-    const QString author = toDisplay(mod.author);
-    const QString status = toDisplay(mod.status, tr("最新"));
-    const QString lastPublished = toDisplay(mod.last_published_at, tr("-"));
-    const QString lastSaved = toDisplay(mod.last_saved_at, tr("-"));
-    const QString platform = toDisplay(mod.source_platform);
-    const QString url = toDisplay(mod.source_url);
-    const QString note = toDisplay(mod.note);
-    const QString integrity = toDisplay(mod.integrity);
-    const QString stability = toDisplay(mod.stability);
-    const QString acquisition = toDisplay(mod.acquisition_method);
-    const QString tags = modTagsText_[mod.id];
-
-    modTable_->insertRow(row);
-    auto* itemName = new QTableWidgetItem(name);
-    itemName->setData(Qt::UserRole, mod.id);
-    modTable_->setItem(row, 0, itemName);
-    modTable_->setItem(row, 1, new QTableWidgetItem(categoryNameFor(mod.category_id)));
-    modTable_->setItem(row, 2, new QTableWidgetItem(tags));
-    modTable_->setItem(row, 3, new QTableWidgetItem(author));
-    modTable_->setItem(row, 4, new QTableWidgetItem(mod.rating > 0 ? QString::number(mod.rating) : QString("-")));
-    modTable_->setItem(row, 5, new QTableWidgetItem(status));
-    modTable_->setItem(row, 6, new QTableWidgetItem(lastPublished));
-    modTable_->setItem(row, 7, new QTableWidgetItem(lastSaved));
-    modTable_->setItem(row, 8, new QTableWidgetItem(platform));
-    modTable_->setItem(row, 9, new QTableWidgetItem(url));
-    modTable_->setItem(row, 10, new QTableWidgetItem(integrity.isEmpty() ? tr("-") : integrity));
-    modTable_->setItem(row, 11, new QTableWidgetItem(stability.isEmpty() ? tr("-") : stability));
-    modTable_->setItem(row, 12, new QTableWidgetItem(acquisition.isEmpty() ? tr("-") : acquisition));
-    modTable_->setItem(row, 13, new QTableWidgetItem(note));
-    ++row;
-  }
-
-  if (modTable_->rowCount() > 0) {
-    modTable_->setCurrentCell(0, 0);
-  } else {
-    updateDetailForMod(-1);
-  }
-}
-
-int MainWindow::filterIdForCombo(const QComboBox* combo,
-                                 const QSortFilterProxyModel* proxy,
-                                 const QStandardItemModel* model) const {
-  if (!combo || !proxy || !model) {
-    return 0;
-  }
-  const int index = combo->currentIndex();
-  if (index < 0) {
-    return 0;
-  }
-  const QModelIndex proxyIndex = proxy->index(index, 0);
-  if (!proxyIndex.isValid()) {
-    return 0;
-  }
-  const QModelIndex sourceIndex = proxy->mapToSource(proxyIndex);
-  if (!sourceIndex.isValid()) {
-    return 0;
-  }
-  return model->data(sourceIndex, Qt::UserRole).toInt();
-}
-
-bool MainWindow::modMatchesFilter(const ModRow& mod,
-                                  const QString& attribute,
-                                  int filterId,
-                                  const QString& filterValue) const {
-  if (attribute == tr("分类")) {
-    if (filterId == kUncategorizedCategoryId) {
-      return mod.category_id == 0;
-    }
-    if (filterId > 0) {
-      return categoryMatchesFilter(mod.category_id, filterId);
-    }
-    return true;
-  }
-
-  if (attribute == tr("名称")) {
-    if (filterValue.isEmpty()) {
-      return true;
-    }
-    const QString name = QString::fromStdString(mod.name);
-    return name.contains(filterValue, Qt::CaseInsensitive);
-  }
-
-  if (attribute == tr("标签")) {
-    const auto tagsIt = modTagsCache_.find(mod.id);
-    static const std::vector<TagWithGroupRow> kEmptyTags;
-    const auto& modTags = tagsIt != modTagsCache_.end() ? tagsIt->second : kEmptyTags;
-
-    if (filterId == kUntaggedTagId) {
-      return modTags.empty();
-    }
-    if (filterId > 0) {
-      const auto it = std::find_if(modTags.begin(), modTags.end(), [filterId](const TagWithGroupRow& tag) {
-        return tag.id == filterId;
-      });
-      return it != modTags.end();
-    }
-    return true;
-  }
-
-  if (attribute == tr("作者")) {
-    const QString authorFilter = filterValue.trimmed();
-    if (authorFilter.isEmpty()) {
-      return true;
-    }
-    return QString::fromStdString(mod.author) == authorFilter;
-  }
-
-  if (attribute == tr("评分")) {
-    if (filterId == 0) {
-      return true;
-    }
-    if (filterId > 0) {
-      return mod.rating == filterId;
-    }
-    return mod.rating <= 0;
-  }
-
-  return true;
-}
 
 void MainWindow::applySelectorFilter() {
-  if (!repoTable_ || !selectorFilterAttribute_) {
-    return;
-  }
-
-  const QString attribute = selectorFilterAttribute_->currentText();
-  const QString filterValueText = selectorFilterValue_ ? selectorFilterValue_->currentText() : QString();
-  const int filterId = filterIdForCombo(selectorFilterValue_, selectorProxyModel_, selectorFilterModel_);
-
-  repoTable_->setRowCount(0);
-  int row = 0;
-  for (const auto& mod : mods_) {
-    if (mod.is_deleted) {
-      continue;
-    }
-    if (!modMatchesFilter(mod, attribute, filterId, filterValueText)) {
-      continue;
-    }
-
-    repoTable_->insertRow(row);
-    auto* itemName = new QTableWidgetItem(QString::fromStdString(mod.name));
-    itemName->setData(Qt::UserRole, mod.id);
-    repoTable_->setItem(row, 0, itemName);
-    const auto tagsIt = modTagsText_.find(mod.id);
-    const QString tagsText = tagsIt != modTagsText_.end() ? tagsIt->second : QString();
-    repoTable_->setItem(row, 1, new QTableWidgetItem(tagsText));
-    repoTable_->setItem(row, 2, new QTableWidgetItem(toDisplay(mod.author)));
-    repoTable_->setItem(row, 3, new QTableWidgetItem(mod.rating > 0 ? QString::number(mod.rating) : QString("-")));
-    repoTable_->setItem(row, 4, new QTableWidgetItem(toDisplay(mod.note)));
-    ++row;
-  }
-
-  if (gameDirTable_) {
-    const int rowCount = gameDirTable_->rowCount();
-    for (int rowIndex = 0; rowIndex < rowCount; ++rowIndex) {
-      bool visible = true;
-      if (auto* item = gameDirTable_->item(rowIndex, 0)) {
-        const int modId = item->data(Qt::UserRole).toInt();
-        if (modId > 0) {
-          const auto it = std::find_if(mods_.begin(), mods_.end(), [modId](const ModRow& row) {
-            return row.id == modId;
-          });
-          if (it != mods_.end()) {
-            visible = modMatchesFilter(*it, attribute, filterId, filterValueText);
-          }
-        }
-      }
-      gameDirTable_->setRowHidden(rowIndex, !visible);
-    }
+  if (selectorPresenter_) {
+    selectorPresenter_->applyFilter();
   }
 }
 
 void MainWindow::populateCategoryFilterModel(QStandardItemModel* model, bool updateCache) {
-  if (!repo_) {
-    return;
-  }
-
-  if (model) {
-    model->clear();
-    auto* uncategorizedItem = new QStandardItem(tr("未分类"));
-    uncategorizedItem->setData(kUncategorizedCategoryId, Qt::UserRole);
-    model->appendRow(uncategorizedItem);
-  }
-
-  const auto categories = repo_->listCategories();
-  std::vector<CategoryRow> topLevel;
-  std::unordered_map<int, std::vector<CategoryRow>> children;
-
-  for (const auto& category : categories) {
-    if (updateCache) {
-      categoryNames_[category.id] = QString::fromStdString(category.name);
-      if (category.parent_id.has_value()) {
-        categoryParent_[category.id] = *category.parent_id;
-      }
-    }
-
-    if (category.parent_id.has_value()) {
-      children[*category.parent_id].push_back(category);
-    } else {
-      topLevel.push_back(category);
-    }
-  }
-
-  const auto compare = [](const CategoryRow& a, const CategoryRow& b) {
-    if (a.priority != b.priority) return a.priority < b.priority;
-    if (a.name != b.name) return a.name < b.name;
-    return a.id < b.id;
-  };
-  std::sort(topLevel.begin(), topLevel.end(), compare);
-  for (auto& entry : children) {
-    auto& bucket = entry.second;
-    std::sort(bucket.begin(), bucket.end(), compare);
-  }
-
-  for (const auto& parent : topLevel) {
-    if (model) {
-      auto* parentItem = new QStandardItem(QString::fromStdString(parent.name));
-      parentItem->setData(parent.id, Qt::UserRole);
-      model->appendRow(parentItem);
-
-      const auto childIt = children.find(parent.id);
-      if (childIt != children.end()) {
-        for (const auto& child : childIt->second) {
-          auto* childItem = new QStandardItem("  " + QString::fromStdString(child.name));
-          childItem->setData(child.id, Qt::UserRole);
-          model->appendRow(childItem);
-        }
-      }
-    }
+  if (repositoryPresenter_) {
+    repositoryPresenter_->populateCategoryFilterModel(model, updateCache);
   }
 }
 
 void MainWindow::populateTagFilterModel(QStandardItemModel* model) const {
-  if (!model || !repo_) {
-    return;
-  }
-
-  model->clear();
-  auto* untaggedItem = new QStandardItem(tr("未分类"));
-  untaggedItem->setData(kUntaggedTagId, Qt::UserRole);
-  model->appendRow(untaggedItem);
-
-  const auto tags = repo_->listTags();
-  struct GroupBucket {
-    int id = 0;
-    QString name;
-    int priority = 0;
-    std::vector<TagWithGroupRow> tags;
-  };
-
-  std::unordered_map<int, GroupBucket> groupedTags;
-  for (const auto& tag : tags) {
-    auto& bucket = groupedTags[tag.group_id];
-    if (bucket.tags.empty()) {
-      bucket.id = tag.group_id;
-      bucket.name = QString::fromStdString(tag.group_name);
-      bucket.priority = tag.group_priority;
-    }
-    bucket.tags.push_back(tag);
-  }
-
-  auto compareGroup = [](const GroupBucket& a, const GroupBucket& b) {
-    if (a.priority != b.priority) return a.priority < b.priority;
-    if (a.name != b.name) return a.name < b.name;
-    return a.id < b.id;
-  };
-  auto compareTag = [](const TagWithGroupRow& a, const TagWithGroupRow& b) {
-    if (a.priority != b.priority) return a.priority < b.priority;
-    if (a.name != b.name) return a.name < b.name;
-    return a.id < b.id;
-  };
-
-  std::vector<GroupBucket> orderedGroups;
-  orderedGroups.reserve(groupedTags.size());
-  for (auto& entry : groupedTags) {
-    auto& bucket = entry.second;
-    std::sort(bucket.tags.begin(), bucket.tags.end(), compareTag);
-    orderedGroups.push_back(std::move(bucket));
-  }
-  std::sort(orderedGroups.begin(), orderedGroups.end(), compareGroup);
-
-  for (const auto& group : orderedGroups) {
-    auto* groupItem = new QStandardItem(group.name);
-    groupItem->setFlags(groupItem->flags() & ~Qt::ItemIsSelectable);
-    model->appendRow(groupItem);
-
-    for (const auto& tag : group.tags) {
-      auto* tagItem = new QStandardItem("  " + QString::fromStdString(tag.name));
-      tagItem->setData(tag.id, Qt::UserRole);
-      model->appendRow(tagItem);
-    }
+  if (repositoryPresenter_) {
+    repositoryPresenter_->populateTagFilterModel(model);
   }
 }
 
 void MainWindow::populateAuthorFilterModel(QStandardItemModel* model) const {
-  if (!model) {
-    return;
-  }
-
-  model->clear();
-  QSet<QString> authors;
-  for (const auto& mod : mods_) {
-    authors.insert(QString::fromStdString(mod.author));
-  }
-
-  QStringList authorList(authors.begin(), authors.end());
-  authorList.sort(Qt::CaseInsensitive);
-  for (const auto& author : authorList) {
-    auto* authorItem = new QStandardItem(author);
-    authorItem->setData(author, Qt::UserRole);
-    model->appendRow(authorItem);
+  if (repositoryPresenter_) {
+    repositoryPresenter_->populateAuthorFilterModel(model);
   }
 }
 
 void MainWindow::populateRatingFilterModel(QStandardItemModel* model) const {
-  if (!model) {
-    return;
-  }
-
-  model->clear();
-  for (int i = 5; i >= 1; --i) {
-    auto* item = new QStandardItem(tr("%1 星").arg(i));
-    item->setData(i, Qt::UserRole);
-    model->appendRow(item);
-  }
-
-  auto* unratedItem = new QStandardItem(tr("未评分"));
-  unratedItem->setData(-1, Qt::UserRole);
-  model->appendRow(unratedItem);
-}
-
-void MainWindow::updateDetailForMod(int modId) {
-  const auto it = std::find_if(mods_.begin(), mods_.end(), [modId](const ModRow& row) { return row.id == modId; });
-  if (it == mods_.end()) {
-    coverLabel_->setPixmap(QPixmap());
-    coverLabel_->setText(tr("Selected MOD image"));
-    metaLabel_->clear();
-    noteView_->clear();
-    return;
-  }
-
-  const ModRow& mod = *it;
-  const QString categoryName = categoryNameFor(mod.category_id);
-  QString tags;
-  const auto cacheIt = modTagsCache_.find(mod.id);
-  if (cacheIt != modTagsCache_.end()) {
-    tags = formatTagSummary(cacheIt->second, QStringLiteral("\n"), QStringLiteral(" / "));
-  } else {
-    auto rows = repo_->listTagsForMod(mod.id);
-    tags = formatTagSummary(rows, QStringLiteral("\n"), QStringLiteral(" / "));
-  }
-
-  coverLabel_->setText(QString());
-  QPixmap pix;
-  auto tryLoad = [&](const QString& path) -> bool {
-    if (path.isEmpty()) return false;
-    QFileInfo info(path);
-    if (!info.exists() && !repoDir_.isEmpty()) {
-      QDir dir(repoDir_);
-      info = QFileInfo(dir.absoluteFilePath(path));
-    }
-    if (info.exists() && info.isFile()) {
-      pix = QPixmap(info.absoluteFilePath());
-      if (!pix.isNull()) {
-        coverLabel_->setPixmap(pix.scaled(coverLabel_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-        return true;
-      }
-    }
-    return false;
-  };
-  if (!tryLoad(QString::fromStdString(mod.cover_path))) {
-    coverLabel_->setPixmap(QPixmap());
-    coverLabel_->setText(tr("无封面"));
-  }
-
-  noteView_->setPlainText(QString::fromStdString(mod.note));
-
-  QStringList meta;
-  meta << tr("名称：%1").arg(QString::fromStdString(mod.name));
-  meta << tr("分类：%1").arg(categoryName.isEmpty() ? tr("未分类") : categoryName);
-  meta << tr("标签：%1").arg(tags.isEmpty() ? tr("无") : tags);
-  meta << tr("作者：%1").arg(toDisplay(mod.author, tr("未知")));
-  meta << tr("评分：%1").arg(mod.rating > 0 ? QString::number(mod.rating) : tr("未评分"));
-  meta << tr("大小：%1 MB").arg(QString::number(mod.size_mb, 'f', 2));
-  meta << tr("状态：%1").arg(toDisplay(mod.status, tr("最新")));
-  meta << tr("最后发布日：%1").arg(toDisplay(mod.last_published_at, tr("-")));
-  meta << tr("最后保存日：%1").arg(toDisplay(mod.last_saved_at, tr("-")));
-  meta << tr("健全度：%1").arg(toDisplay(mod.integrity, tr("-")));
-  meta << tr("稳定性：%1").arg(toDisplay(mod.stability, tr("-")));
-  meta << tr("获取方式：%1").arg(toDisplay(mod.acquisition_method, tr("-")));
-  if (!mod.source_platform.empty()) meta << tr("平台：%1").arg(QString::fromStdString(mod.source_platform));
-  if (!mod.source_url.empty()) meta << tr("链接：%1").arg(QString::fromStdString(mod.source_url));
-  if (!mod.file_path.empty()) meta << tr("文件：%1").arg(QString::fromStdString(mod.file_path));
-  if (!mod.file_hash.empty()) meta << tr("哈希：%1").arg(QString::fromStdString(mod.file_hash));
-  metaLabel_->setText(meta.join('\n'));
-}
-
-QString MainWindow::categoryNameFor(int categoryId) const {
-  if (categoryId > 0) {
-    const auto it = categoryNames_.find(categoryId);
-    if (it != categoryNames_.end()) {
-      return it->second;
-    }
-    return QStringLiteral("Category#%1").arg(categoryId);
-  }
-  return tr("未分类");
-}
-
-bool MainWindow::categoryMatchesFilter(int modCategoryId, int filterCategoryId) const {
-  if (filterCategoryId == -1) {
-    return modCategoryId == 0;
-  }
-  if (filterCategoryId <= 0) {
-    return true;
-  }
-
-  int currentId = modCategoryId;
-  while (currentId > 0) {
-    if (currentId == filterCategoryId) {
-      return true;
-    }
-    const auto it = categoryParent_.find(currentId);
-    if (it == categoryParent_.end()) {
-      break;
-    }
-    currentId = it->second;
-  }
-  return false;
-}
-
-QString MainWindow::tagsTextForMod(int modId) {
-  return modTagsText_[modId];
-}
-
-QString MainWindow::formatTagSummary(const std::vector<TagWithGroupRow>& rows,
-                                     const QString& groupSeparator,
-                                     const QString& tagSeparator) const {
-  if (rows.empty()) {
-    return {};
-  }
-
-  QMap<QString, QStringList> grouped;
-  for (const auto& row : rows) {
-    const QString groupName = QString::fromStdString(row.group_name);
-    const QString tagName = QString::fromStdString(row.name);
-    QStringList& list = grouped[groupName];
-    if (!list.contains(tagName)) {
-      list.append(tagName);
-    }
-  }
-
-  QStringList sections;
-  for (auto it = grouped.constBegin(); it != grouped.constEnd(); ++it) {
-    QStringList tags = it.value();
-    std::sort(tags.begin(), tags.end(), [](const QString& a, const QString& b) {
-      return a.localeAwareCompare(b) < 0;
-    });
-    sections << QString("%1: %2").arg(it.key(), tags.join(tagSeparator));
-  }
-  return sections.join(groupSeparator);
-}
-
-std::vector<TagDescriptor> MainWindow::tagsForMod(int modId) const {
-  std::vector<TagDescriptor> tags;
-  const auto rows = repo_->listTagsForMod(modId);
-  tags.reserve(rows.size());
-  for (const auto& row : rows) {
-    tags.push_back({row.group_name, row.name});
-  }
-  return tags;
-}
-
-void MainWindow::onRefresh() {
-  reloadCategories();
-  loadData();
-}
-
-void MainWindow::onImport() {
-  ModEditorDialog dialog(*repo_, this);
-  if (dialog.exec() != QDialog::Accepted) {
-    return;
-  }
-  ModRow mod = dialog.modData();
-  QStringList transferErrors;
-  if (!importService_ || !importService_->ensureModFilesInRepository(settings_, mod, transferErrors)) {
-    QMessageBox::warning(this, tr("导入失败"), transferErrors.join(QStringLiteral("\n")));
-    return;
-  }
-  try {
-    repo_->createModWithTags(mod, dialog.selectedTags());
-    loadData();
-  } catch (const DbError& e) {
-    QMessageBox::warning(this, tr("导入失败"), tr("MOD 导入失败：%1").arg(e.what()));
+  if (repositoryPresenter_) {
+    repositoryPresenter_->populateRatingFilterModel(model);
   }
 }
 
-void MainWindow::onEdit() {
-  auto* item = modTable_->currentItem();
-  if (!item) {
-    QMessageBox::information(this, tr("未选择"), tr("请先选择一个 MOD。"));
-    return;
-  }
-  const int modId = modTable_->item(modTable_->currentRow(), 0)->data(Qt::UserRole).toInt();
-  auto mod = repo_->findMod(modId);
-  if (!mod) {
-    QMessageBox::warning(this, tr("缺失"), tr("该 MOD 记录已不存在。"));
-    return;
-  }
-
-  ModEditorDialog dialog(*repo_, this);
-  dialog.setMod(*mod, tagsForMod(modId));
-  if (dialog.exec() != QDialog::Accepted) {
-    return;
-  }
-
-  ModRow updated = dialog.modData();
-  QStringList transferErrors;
-  if (!importService_ || !importService_->ensureModFilesInRepository(settings_, updated, transferErrors)) {
-    QMessageBox::warning(this, tr("保存失败"), transferErrors.join(QStringLiteral("\n")));
-    return;
-  }
-  repo_->updateModWithTags(updated, dialog.selectedTags());
-  loadData();
-  updateDetailForMod(updated.id);
-}
 
 void MainWindow::onApplyToGame() {
   // TODO: implement
@@ -1563,188 +803,35 @@ void MainWindow::onSaveCombination() {
   // TODO: implement
 }
 
-void MainWindow::onDelete() {
-  auto* item = modTable_->currentItem();
-  if (!item) return;
-  const int modId = modTable_->item(modTable_->currentRow(), 0)->data(Qt::UserRole).toInt();
 
-  const auto reply =
-      QMessageBox::question(this, tr("隐藏 MOD"), tr("是否从仓库中隐藏该 MOD？"), QMessageBox::Yes | QMessageBox::No);
-  if (reply != QMessageBox::Yes) return;
 
-  repo_->setModDeleted(modId, true);
-  loadData();
-}
 
-void MainWindow::onShowDeletedModsToggled(bool checked) {
-  Q_UNUSED(checked);
-  populateTable(); // Now just re-filter the already loaded data
-}
 
-void MainWindow::onFilterAttributeChanged(const QString& attribute) {
-  filterValue_->blockSignals(true);
-  filterModel_->clear(); // Clear the model first
-  proxyModel_->setFilterFixedString(""); // Clear any active filter on the proxy model
 
-  QString placeholder = "";
 
-  if (attribute == tr("名称")) {
-    filterValue_->setEnabled(true);
-    placeholder = tr("搜索名称");
-  } else if (attribute == tr("分类")) {
-    filterValue_->setEnabled(true);
-    reloadCategories(); // Populates filterModel_
-    placeholder = tr("选择分类");
-  } else if (attribute == tr("标签")) {
-    filterValue_->setEnabled(true);
-    reloadTags(); // Populates filterModel_
-    placeholder = tr("选择标签");
-  } else if (attribute == tr("作者")) {
-    filterValue_->setEnabled(true);
-    reloadAuthors(); // Populates filterModel_
-    placeholder = tr("搜索作者");
-  } else if (attribute == tr("评分")) {
-    filterValue_->setEnabled(true);
-    reloadRatings(); // Populates filterModel_
-    placeholder = tr("选择评分");
-  }
 
-  filterValue_->lineEdit()->setPlaceholderText(placeholder); // Set placeholder text
 
-  // Explicitly reset the model to force a refresh
-  filterValue_->setModel(nullptr); // Temporarily unset the model
-  filterValue_->setModel(proxyModel_); // Set it back
-  filterValue_->setEditText(QString()); // 清空输入框以展示占位提示
-  filterValue_->setCurrentIndex(-1); // 重置选中项
 
-  filterValue_->blockSignals(false); // Unblock signals here
 
-  onFilterChanged(); // Trigger filter update
-}
-
-void MainWindow::reloadRatings() {
-  populateRatingFilterModel(filterModel_);
-}
-
-void MainWindow::reloadAuthors() {
-  populateAuthorFilterModel(filterModel_);
-}
-
-void MainWindow::reloadTags() {
-  populateTagFilterModel(filterModel_);
-}
-
-void MainWindow::onFilterValueTextChanged(const QString& text) {
-  proxyModel_->setFilterFixedString(text);
-
-  const QString currentFilter = filterAttribute_->currentText();
-  if (currentFilter == tr("分类") || currentFilter == tr("标签")) {
-    if (filterValue_->lineEdit()->hasFocus()) {
-      filterValue_->showPopup();
-    }
-  }
-}
-
-void MainWindow::onFilterChanged() {
-  populateTable();
-}
-
-void MainWindow::onSelectorFilterAttributeChanged(const QString& attribute) {
-  if (!selectorFilterValue_ || !selectorFilterModel_ || !selectorProxyModel_) {
-    return;
-  }
-
-  selectorFilterValue_->blockSignals(true);
-  selectorFilterModel_->clear();
-  selectorProxyModel_->setFilterFixedString("");
-
-  QString placeholder;
-
-  if (attribute == tr("名称")) {
-    placeholder = tr("搜索名称");
-  } else if (attribute == tr("分类")) {
-    populateCategoryFilterModel(selectorFilterModel_, false);
-    placeholder = tr("选择分类");
-  } else if (attribute == tr("标签")) {
-    populateTagFilterModel(selectorFilterModel_);
-    placeholder = tr("选择标签");
-  } else if (attribute == tr("作者")) {
-    populateAuthorFilterModel(selectorFilterModel_);
-    placeholder = tr("搜索作者");
-  } else if (attribute == tr("评分")) {
-    populateRatingFilterModel(selectorFilterModel_);
-    placeholder = tr("选择评分");
-  }
-
-  if (selectorFilterValue_->lineEdit()) {
-    selectorFilterValue_->lineEdit()->setPlaceholderText(placeholder);
-  }
-
-  selectorFilterValue_->setModel(nullptr);
-  selectorFilterValue_->setModel(selectorProxyModel_);
-  selectorFilterValue_->setEditText(QString());
-  selectorFilterValue_->setCurrentIndex(-1);
-
-  selectorFilterValue_->blockSignals(false);
-
-  applySelectorFilter();
-}
-
-void MainWindow::onSelectorFilterValueTextChanged(const QString& text) {
-  if (!selectorProxyModel_) {
-    return;
-  }
-  selectorProxyModel_->setFilterFixedString(text);
-
-  if (!selectorFilterAttribute_ || !selectorFilterValue_ || !selectorFilterValue_->lineEdit()) {
-    return;
-  }
-
-  const QString currentFilter = selectorFilterAttribute_->currentText();
-  if (currentFilter == tr("分类") || currentFilter == tr("标签")) {
-    if (selectorFilterValue_->lineEdit()->hasFocus()) {
-      selectorFilterValue_->showPopup();
-    }
-  }
-}
-
-void MainWindow::onSelectorFilterChanged() {
-  applySelectorFilter();
-}
-
-void MainWindow::onCurrentRowChanged(int currentRow, int currentColumn, int previousRow, int previousColumn) {
-  Q_UNUSED(currentColumn);
-  Q_UNUSED(previousRow);
-  Q_UNUSED(previousColumn);
-  if (currentRow < 0) {
-    updateDetailForMod(-1);
-    return;
-  }
-  auto* item = modTable_->item(currentRow, 0);
-  if (!item) {
-    updateDetailForMod(-1);
-    return;
-  }
-  updateDetailForMod(item->data(Qt::UserRole).toInt());
-}
 
 void MainWindow::switchToRepository() {
   stack_->setCurrentIndex(0);
-  updateTabButtonState(repoButton_);
+  if (navigationBar_) {
+    navigationBar_->setActive(NavigationBar::Tab::Repository);
+  }
 }
 
 void MainWindow::switchToSelector() {
   stack_->setCurrentIndex(1);
-  updateTabButtonState(selectorButton_);
+  if (navigationBar_) {
+    navigationBar_->setActive(NavigationBar::Tab::Selector);
+  }
   applySelectorFilter();
 }
 
 void MainWindow::reloadRepoSelectorData() {
-  // 根据当前过滤条件刷新选择器页面展示
-  if (selectorFilterAttribute_) {
-    onSelectorFilterAttributeChanged(selectorFilterAttribute_->currentText());
-  } else {
-    applySelectorFilter();
+  if (selectorPresenter_) {
+    selectorPresenter_->refreshRepositoryData();
   }
 }
 
@@ -1756,17 +843,8 @@ void MainWindow::switchToSettings() {
   ensureSettingsNavSelection();
   setSettingsStatus({});
   stack_->setCurrentIndex(2);
-  updateTabButtonState(settingsButton_);
-}
-
-void MainWindow::updateTabButtonState(QPushButton* active) {
-  const QList<QPushButton*> buttons = {repoButton_, selectorButton_, settingsButton_};
-  for (auto* button : buttons) {
-    if (!button) continue;
-    button->setCheckable(true);
-    button->setChecked(button == active);
-    button->setStyleSheet(button == active ? "QPushButton { background: #0f4a70; color: white; }"
-                                           : "QPushButton { background: #d0e3ec; }");
+  if (navigationBar_) {
+    navigationBar_->setActive(NavigationBar::Tab::Settings);
   }
 }
 
@@ -1901,8 +979,9 @@ void MainWindow::onSaveSettings() {
     if (repoChanged) {
       reinitializeRepository(settings_);
     } else {
-      reloadCategories();
-      loadData();
+      if (repositoryPresenter_) {
+        repositoryPresenter_->reloadAll();
+      }
       reloadRepoSelectorData();
     }
 
@@ -1980,8 +1059,9 @@ void MainWindow::onCategoryItemChanged(QTreeWidgetItem* item, int column) {
     try {
       repo_->updateCategory(id, newName.toStdString(), parentId, std::nullopt);
       refreshCategoryManagementUi();
-      reloadCategories();
-      loadData();
+      if (repositoryPresenter_) {
+        repositoryPresenter_->reloadAll();
+      }
     } catch (const std::exception& ex) {
       restoreName();
       QMessageBox::warning(this, tr("更新失败"), QString::fromUtf8(ex.what()));
@@ -2002,8 +1082,9 @@ void MainWindow::onCategoryItemChanged(QTreeWidgetItem* item, int column) {
       const QString currentName = item->text(0).trimmed();
       repo_->updateCategory(id, currentName.toStdString(), parentId, newPriority);
       refreshCategoryManagementUi();
-      reloadCategories();
-      loadData();
+      if (repositoryPresenter_) {
+        repositoryPresenter_->reloadAll();
+      }
     } catch (const std::exception& ex) {
       restorePriority();
       QMessageBox::warning(this, tr("更新失败"), QString::fromUtf8(ex.what()));
@@ -2042,8 +1123,9 @@ void MainWindow::adjustCategoryOrder(int direction) {
   try {
     repo_->swapCategoryPriority(currentId, siblingId);
     refreshCategoryManagementUi();
-    reloadCategories();
-    loadData();
+    if (repositoryPresenter_) {
+      repositoryPresenter_->reloadAll();
+    }
   } catch (const std::exception& ex) {
     QMessageBox::warning(this, tr("更新失败"), QString::fromUtf8(ex.what()));
   }
@@ -2069,8 +1151,9 @@ void MainWindow::onAddCategoryTopLevel() {
   try {
     repo_->createCategory(name.toStdString(), std::nullopt);
     refreshCategoryManagementUi();
-    reloadCategories();
-    loadData();
+    if (repositoryPresenter_) {
+      repositoryPresenter_->reloadAll();
+    }
   } catch (const std::exception& ex) {
     QMessageBox::warning(this, tr("创建失败"), QString::fromUtf8(ex.what()));
   }
@@ -2093,8 +1176,9 @@ void MainWindow::onAddCategoryChild() {
   try {
     repo_->createCategory(name.toStdString(), parentId);
     refreshCategoryManagementUi();
-    reloadCategories();
-    loadData();
+    if (repositoryPresenter_) {
+      repositoryPresenter_->reloadAll();
+    }
   } catch (const std::exception& ex) {
     QMessageBox::warning(this, tr("创建失败"), QString::fromUtf8(ex.what()));
   }
@@ -2126,8 +1210,9 @@ void MainWindow::onRenameCategory() {
   try {
     repo_->updateCategory(id, name.toStdString(), parentId);
     refreshCategoryManagementUi();
-    reloadCategories();
-    loadData();
+    if (repositoryPresenter_) {
+      repositoryPresenter_->reloadAll();
+    }
   } catch (const std::exception& ex) {
     QMessageBox::warning(this, tr("重命名失败"), QString::fromUtf8(ex.what()));
   }
@@ -2162,8 +1247,9 @@ void MainWindow::onDeleteCategory() {
   try {
     repo_->deleteCategory(id);
     refreshCategoryManagementUi();
-    reloadCategories();
-    loadData();
+    if (repositoryPresenter_) {
+      repositoryPresenter_->reloadAll();
+    }
   } catch (const std::exception& ex) {
     QMessageBox::warning(this, tr("删除失败"), QString::fromUtf8(ex.what()));
   }
@@ -2212,7 +1298,9 @@ void MainWindow::onRenameTagGroup() {
   try {
     repo_->renameTagGroup(groupId, name.toStdString());
     refreshTagManagementUi();
-    loadData();
+    if (repositoryPresenter_) {
+      repositoryPresenter_->reloadAll();
+    }
   } catch (const std::exception& ex) {
     QMessageBox::warning(this, tr("重命名失败"), QString::fromUtf8(ex.what()));
   }
@@ -2236,7 +1324,9 @@ void MainWindow::onDeleteTagGroup() {
       return;
     }
     refreshTagManagementUi();
-    loadData();
+    if (repositoryPresenter_) {
+      repositoryPresenter_->reloadAll();
+    }
   } catch (const std::exception& ex) {
     QMessageBox::warning(this, tr("删除失败"), QString::fromUtf8(ex.what()));
   }
@@ -2259,7 +1349,9 @@ void MainWindow::onAddTag() {
   try {
     repo_->createTag(groupId, name.toStdString());
     refreshTagListForGroup(groupId);
-    loadData();
+    if (repositoryPresenter_) {
+      repositoryPresenter_->reloadAll();
+    }
   } catch (const std::exception& ex) {
     QMessageBox::warning(this, tr("创建失败"), QString::fromUtf8(ex.what()));
   }
@@ -2286,7 +1378,9 @@ void MainWindow::onRenameTag() {
   try {
     repo_->renameTag(tagId, name.toStdString());
     refreshTagListForGroup(selectedTagGroupId());
-    loadData();
+    if (repositoryPresenter_) {
+      repositoryPresenter_->reloadAll();
+    }
   } catch (const std::exception& ex) {
     QMessageBox::warning(this, tr("重命名失败"), QString::fromUtf8(ex.what()));
   }
@@ -2310,7 +1404,9 @@ void MainWindow::onDeleteTag() {
       return;
     }
     refreshTagListForGroup(selectedTagGroupId());
-    loadData();
+    if (repositoryPresenter_) {
+      repositoryPresenter_->reloadAll();
+    }
   } catch (const std::exception& ex) {
     QMessageBox::warning(this, tr("删除失败"), QString::fromUtf8(ex.what()));
   }
@@ -2333,7 +1429,9 @@ void MainWindow::onClearDeletedMods() {
 
   try {
     repo_->clearDeletedMods(); // This method needs to be implemented in RepositoryService
-    loadData(); // Refresh the table
+    if (repositoryPresenter_) {
+      repositoryPresenter_->reloadAll();
+    } // Refresh the table
     QMessageBox::information(this, tr("清除成功"), tr("已成功清除所有已删除MOD的数据记录。"));
   } catch (const DbError& e) {
     QMessageBox::warning(this, tr("清除失败"), tr("清除已删除MOD数据记录失败：%1").arg(e.what()));
@@ -2564,3 +1662,7 @@ bool MainWindow::ensureModFilesInRepository(ModRow& mod, QStringList& errors) co
   const bool coverOk = handlePath(mod.cover_path, tr("封面文件"), false);
   return fileOk && coverOk;
 }
+void MainWindow::onRepositoryModsReloaded() {
+  reloadRepoSelectorData();
+}
+

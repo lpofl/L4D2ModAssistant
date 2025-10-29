@@ -16,7 +16,6 @@
 class QStackedWidget;
 class QLineEdit;
 class QComboBox;
-class QTableWidget;
 class QPushButton;
 class QLabel;
 class QTextEdit;
@@ -31,6 +30,13 @@ class QScrollArea;
 
 class QSortFilterProxyModel;
 class QStandardItemModel;
+class NavigationBar;
+class ModFilterPanel;
+class ModTableWidget;
+class RepositoryPage;
+class RepositoryPresenter;
+class SelectorPage;
+class SelectorPresenter;
 
 /**
  * @brief Application main window hosting repository/selector/settings tabs.
@@ -39,19 +45,9 @@ class MainWindow : public QMainWindow {
   Q_OBJECT
 public:
   explicit MainWindow(QWidget* parent = nullptr);
+  ~MainWindow();
 
 private slots:
-  void onRefresh();
-  void onImport();
-  void onEdit();
-  void onDelete();
-  void onFilterChanged();
-  void onFilterAttributeChanged(const QString& attribute);
-  void onFilterValueTextChanged(const QString& text);
-  void onSelectorFilterChanged();
-  void onSelectorFilterAttributeChanged(const QString& attribute);
-  void onSelectorFilterValueTextChanged(const QString& text);
-  void onCurrentRowChanged(int currentRow, int currentColumn, int previousRow, int previousColumn);
   void switchToRepository();
   void switchToSelector();
   void switchToSettings();
@@ -61,9 +57,6 @@ private slots:
   void onRandomize();
   void onSaveCombination();
   void onApplyToGame();
-
-  // Repository page slots
-  void onShowDeletedModsToggled(bool checked);
 
   // Settings page slots
   void onClearDeletedMods();
@@ -94,41 +87,18 @@ private slots:
 
 private:
   void setupUi();
-  QWidget* buildNavigationBar();
-  QWidget* buildRepositoryPage();
-  QWidget* buildSelectorPage();
   QWidget* buildSettingsPage();
   QWidget* buildBasicSettingsPane();
   QWidget* buildCategoryManagementPane();
   QWidget* buildTagManagementPane();
   QWidget* buildDeletionPane();
-  void reloadCategories();
-  void reloadTags();
-  void reloadAuthors();
-  void reloadRatings();
+  void onRepositoryModsReloaded();
   void reloadRepoSelectorData();
   void applySelectorFilter();
   void populateCategoryFilterModel(QStandardItemModel* model, bool updateCache);
   void populateTagFilterModel(QStandardItemModel* model) const;
   void populateAuthorFilterModel(QStandardItemModel* model) const;
   void populateRatingFilterModel(QStandardItemModel* model) const;
-  void loadData();
-  void populateTable();
-  void updateDetailForMod(int modId);
-  bool modMatchesFilter(const ModRow& mod,
-                        const QString& attribute,
-                        int filterId,
-                        const QString& filterValue) const;
-  int filterIdForCombo(const QComboBox* combo,
-                       const QSortFilterProxyModel* proxy,
-                       const QStandardItemModel* model) const;
-  QString categoryNameFor(int categoryId) const;
-  QString tagsTextForMod(int modId);
-  QString formatTagSummary(const std::vector<TagWithGroupRow>& rows,
-                           const QString& groupSeparator,
-                           const QString& tagSeparator) const;
-  bool categoryMatchesFilter(int modCategoryId, int filterCategoryId) const;
-  std::vector<TagDescriptor> tagsForMod(int modId) const;
   void refreshBasicSettingsUi();
   void refreshCategoryManagementUi();
   void refreshTagManagementUi();
@@ -141,7 +111,6 @@ private:
   void adjustCategoryOrder(int direction);
   int selectedTagGroupId() const;
   int selectedTagId() const;
-  void updateTabButtonState(QPushButton* active);
   QString detectL4D2GameDirectory() const; // New helper method
   QString deriveAddonsPath(const QString& rootPath) const; // 从根目录推导 addons 目录
   QString deriveWorkshopPath(const QString& addonsPath) const; // 从 addons 目录推导 workshop 目录
@@ -156,15 +125,16 @@ private:
   std::unique_ptr<RandomizeController> randomizeController_;
 
   // Navigation
+  NavigationBar* navigationBar_{};
   QStackedWidget* stack_{};
-  QPushButton* repoButton_{};
-  QPushButton* selectorButton_{};
-  QPushButton* settingsButton_{};
 
   // Repository page widgets
-  QComboBox* filterAttribute_{};
-  QComboBox* filterValue_{};
-  QTableWidget* modTable_{};
+  RepositoryPage* repositoryPage_{};
+  std::unique_ptr<RepositoryPresenter> repositoryPresenter_;
+  ModFilterPanel* repoFilterPanel_{};
+  QComboBox* filterAttribute_{}; // owned by repoFilterPanel_
+  QComboBox* filterValue_{};     // owned by repoFilterPanel_
+  ModTableWidget* modTable_{};
   QPushButton* importBtn_{};
   QPushButton* editBtn_{};
   QPushButton* deleteBtn_{};
@@ -175,10 +145,8 @@ private:
   QCheckBox* showDeletedModsCheckBox_{};
 
   // Selector page widgets
-  QTableWidget* gameDirTable_{};
-  QTableWidget* repoTable_{};
-  QComboBox* selectorFilterAttribute_{};
-  QComboBox* selectorFilterValue_{};
+  SelectorPage* selectorPage_{};
+  std::unique_ptr<SelectorPresenter> selectorPresenter_;
   QPushButton* configureStrategyBtn_{};
   QPushButton* randomizeBtn_{};
   QPushButton* saveCombinationBtn_{};
@@ -220,21 +188,8 @@ private:
   QCheckBox* retainDeletedCheckbox_{};
   QPushButton* clearDeletedModsBtn_{};
 
-  // Data cache
-  std::vector<ModRow> mods_;
-  std::unordered_map<int, QString> categoryNames_;
-  std::unordered_map<int, int> categoryParent_;
-  std::unordered_map<int, QString> modTagsText_;
-  std::unordered_map<int, std::vector<TagWithGroupRow>> modTagsCache_;
-
-  // Filter model
-  QSortFilterProxyModel* proxyModel_{};
-  QStandardItemModel* filterModel_{};
-
-  // Selector filter model
-  QSortFilterProxyModel* selectorProxyModel_{};
-  QStandardItemModel* selectorFilterModel_{};
-
   Settings settings_{};
   bool suppressCategoryItemSignals_ = false;
 };
+
+

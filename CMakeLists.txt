@@ -26,6 +26,20 @@ add_executable(L4D2ModAssistant
   app/ui/MainWindow.ui
   app/ui/ModEditorDialog.cpp
   app/ui/ModEditorDialog.h
+  app/ui/components/NavigationBar.cpp
+  app/ui/components/NavigationBar.h
+  app/ui/components/ModFilterPanel.cpp
+  app/ui/components/ModFilterPanel.h
+  app/ui/components/ModTableWidget.cpp
+  app/ui/components/ModTableWidget.h
+  app/ui/presenters/RepositoryPresenter.cpp
+  app/ui/presenters/RepositoryPresenter.h
+  app/ui/pages/RepositoryPage.cpp
+  app/ui/pages/RepositoryPage.h
+  app/ui/pages/SelectorPage.cpp
+  app/ui/pages/SelectorPage.h
+  app/ui/presenters/SelectorPresenter.cpp
+  app/ui/presenters/SelectorPresenter.h
   app/services/ApplicationInitializer.cpp
   app/services/ApplicationInitializer.h
   app/services/ImportService.cpp
