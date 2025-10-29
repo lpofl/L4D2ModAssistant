@@ -33,14 +33,14 @@ std::string importActionToString(ImportAction action) {
   switch (action) {
     case ImportAction::Cut: return "Cut";
     case ImportAction::Copy: return "Copy";
-    case ImportAction::None: return "Link";
+    case ImportAction::Link: return "Link";
   }
   return "Cut"; // Default
 }
 
 ImportAction stringToImportAction(const std::string& str) {
   if (str == "Copy") return ImportAction::Copy;
-  if (str == "Link") return ImportAction::None;
+  if (str == "Link") return ImportAction::Link;
   return ImportAction::Cut; // Default
 }
 

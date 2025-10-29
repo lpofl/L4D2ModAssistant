@@ -1,5 +1,6 @@
 #include "app/ui/pages/SettingsPage.h"
 
+#include <QWidget>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFormLayout>
@@ -95,7 +96,7 @@ QWidget* SettingsPage::buildBasicSettingsPane() {
   importModeCombo_ = new QComboBox(container);
   importModeCombo_->addItem(tr("移动到仓库目录"), static_cast<int>(ImportAction::Cut));
   importModeCombo_->addItem(tr("复制到仓库目录"), static_cast<int>(ImportAction::Copy));
-  importModeCombo_->addItem(tr("不处理"), static_cast<int>(ImportAction::None));
+  importModeCombo_->addItem(tr("仅链接"), static_cast<int>(ImportAction::Link));
   form->addRow(tr("入库方式"), importModeCombo_);
 
   autoImportCheckbox_ = new QCheckBox(tr("自动整理游戏目录下的 addons"), container);

@@ -11,7 +11,7 @@
  */
 bool ImportService::ensureModFilesInRepository(const Settings& settings, ModRow& mod, QStringList& errors) const {
   const ImportAction action = settings.importAction;
-  if (action == ImportAction::None) {
+  if (action == ImportAction::Link) {
     return true; // 不做导入处理
   }
 
@@ -64,10 +64,18 @@ bool ImportService::ensureModFilesInRepository(const Settings& settings, ModRow&
   };
 
   const auto performTransfer = [action, &errors](const QString& src, const QString& dst, const QString& label) {
+    auto actionVerb = [action]() {
+      switch (action) {
+        case ImportAction::Cut: return QObject::tr("剪切");
+        case ImportAction::Copy: return QObject::tr("复制");
+        case ImportAction::Link: return QObject::tr("建立链接");
+      }
+      return QObject::tr("处理");
+    };
+
     auto emitFailure = [&]() {
       errors << QObject::tr("无法%1 %2 到仓库目录：%3")
-                    .arg(action == ImportAction::Cut ? QObject::tr("剪切") : QObject::tr("复制"))
-                    .arg(label, dst);
+                    .arg(actionVerb(), label, dst);
       return false;
     };
 
@@ -86,7 +94,7 @@ bool ImportService::ensureModFilesInRepository(const Settings& settings, ModRow&
           return true;
         }
         return emitFailure();
-      case ImportAction::None:
+      case ImportAction::Link:
         return true;
     }
     return true;
@@ -136,4 +144,3 @@ bool ImportService::ensureModFilesInRepository(const Settings& settings, ModRow&
   const bool coverOk = handlePath(mod.cover_path, QObject::tr("封面文件"), false);
   return fileOk && coverOk;
 }
-

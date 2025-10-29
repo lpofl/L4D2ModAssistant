@@ -1387,7 +1387,7 @@ QString MainWindow::normalizeRootInput(const QString& rawPath) const {
 
 bool MainWindow::ensureModFilesInRepository(ModRow& mod, QStringList& errors) const {
   const ImportAction action = settings_.importAction;
-  if (action == ImportAction::None) {
+  if (action == ImportAction::Link) {
     return true;
   }
 
@@ -1440,10 +1440,18 @@ bool MainWindow::ensureModFilesInRepository(ModRow& mod, QStringList& errors) co
   };
 
   const auto performTransfer = [action, &errors](const QString& src, const QString& dst, const QString& label) {
+    auto actionVerb = [action]() {
+      switch (action) {
+        case ImportAction::Cut: return tr("剪切");
+        case ImportAction::Copy: return tr("复制");
+        case ImportAction::Link: return tr("建立链接");
+      }
+      return tr("处理");
+    };
+
     auto emitFailure = [&]() {
       errors << tr("无法%1 %2 到仓库目录：%3")
-                    .arg(action == ImportAction::Cut ? tr("剪切") : tr("复制"))
-                    .arg(label, dst);
+                    .arg(actionVerb(), label, dst);
       return false;
     };
 
@@ -1462,7 +1470,7 @@ bool MainWindow::ensureModFilesInRepository(ModRow& mod, QStringList& errors) co
           return true;
         }
         return emitFailure();
-      case ImportAction::None:
+      case ImportAction::Link:
         return true;
     }
     return true;

@@ -8,7 +8,7 @@
 enum class ImportAction {
   Cut,
   Copy,
-  None
+  Link
 };
 
 enum class AddonsAutoImportMethod {
