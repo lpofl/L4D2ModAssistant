@@ -12,32 +12,21 @@
 #include <QSettings>        // For registry access
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QFormLayout>
-#include <QFrame>
-#include <QHeaderView>
-#include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
-#include <QList>
 #include <QListWidget>
-#include <QMap>
 #include <QStandardItem>
 #include <QSet>
 #include <QMessageBox>
 #include <QPixmap>
 #include <QPushButton>
-#include <QScrollArea>
 #include <QSignalBlocker>
-#include <QSplitter>
 #include <QStackedWidget>
-#include <QTableWidget>
-#include <QTableWidgetItem>
 #include <QTextEdit>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QTreeWidgetItemIterator>
-#include <QSizePolicy>
 #include <QStringList>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -47,6 +36,7 @@
 #include "app/ui/components/ModTableWidget.h"
 #include "app/ui/components/NavigationBar.h"
 #include "app/ui/pages/RepositoryPage.h"
+#include "app/ui/pages/SettingsPage.h"
 #include "app/ui/pages/SelectorPage.h"
 #include "app/ui/presenters/RepositoryPresenter.h"
 #include "app/ui/presenters/SelectorPresenter.h"
@@ -196,266 +186,125 @@ void MainWindow::setupUi() {
   connect(selectorPage_, &SelectorPage::randomizeRequested, this, &MainWindow::onRandomize);
   connect(selectorPage_, &SelectorPage::saveCombinationRequested, this, &MainWindow::onSaveCombination);
   connect(selectorPage_, &SelectorPage::applyRequested, this, &MainWindow::onApplyToGame);
-  stack_->addWidget(buildSettingsPage());
+
+  settingsPage_ = new SettingsPage(stack_);
+  stack_->addWidget(settingsPage_);
+
+  // 设置页控件由 SettingsPage 构建，此处仅绑定引用并连接信号，保持 MainWindow 专注业务逻辑
+  settingsNav_ = settingsPage_->navigation();
+  settingsStack_ = settingsPage_->stack();
+  settingsRepoDirEdit_ = settingsPage_->repoDirEdit();
+  settingsRepoBrowseBtn_ = settingsPage_->repoBrowseButton();
+  settingsGameDirEdit_ = settingsPage_->gameDirEdit();
+  settingsGameDirBrowseBtn_ = settingsPage_->gameDirBrowseButton();
+  settingsAddonsPathDisplay_ = settingsPage_->addonsDisplay();
+  settingsWorkshopPathDisplay_ = settingsPage_->workshopDisplay();
+  importModeCombo_ = settingsPage_->importModeCombo();
+  autoImportCheckbox_ = settingsPage_->autoImportCheck();
+  autoImportModeCombo_ = settingsPage_->autoImportModeCombo();
+  saveSettingsBtn_ = settingsPage_->saveSettingsButton();
+  settingsStatusLabel_ = settingsPage_->statusLabel();
+
+  categoryTree_ = settingsPage_->categoryTree();
+  categoryAddRootBtn_ = settingsPage_->categoryAddRootButton();
+  categoryAddChildBtn_ = settingsPage_->categoryAddChildButton();
+  categoryRenameBtn_ = settingsPage_->categoryRenameButton();
+  categoryDeleteBtn_ = settingsPage_->categoryDeleteButton();
+  categoryMoveUpBtn_ = settingsPage_->categoryMoveUpButton();
+  categoryMoveDownBtn_ = settingsPage_->categoryMoveDownButton();
+
+  tagGroupList_ = settingsPage_->tagGroupList();
+  tagList_ = settingsPage_->tagList();
+  tagGroupAddBtn_ = settingsPage_->tagGroupAddButton();
+  tagGroupRenameBtn_ = settingsPage_->tagGroupRenameButton();
+  tagGroupDeleteBtn_ = settingsPage_->tagGroupDeleteButton();
+  tagAddBtn_ = settingsPage_->tagAddButton();
+  tagRenameBtn_ = settingsPage_->tagRenameButton();
+  tagDeleteBtn_ = settingsPage_->tagDeleteButton();
+
+  retainDeletedCheckbox_ = settingsPage_->retainDeletedCheck();
+  clearDeletedModsBtn_ = settingsPage_->clearDeletedButton();
+
+  if (settingsNav_) {
+    connect(settingsNav_, &QListWidget::currentRowChanged, this, &MainWindow::onSettingsNavChanged);
+  }
+  if (settingsRepoBrowseBtn_) {
+    connect(settingsRepoBrowseBtn_, &QPushButton::clicked, this, &MainWindow::onBrowseRepoDir);
+  }
+  if (settingsGameDirBrowseBtn_) {
+    connect(settingsGameDirBrowseBtn_, &QPushButton::clicked, this, &MainWindow::onBrowseGameDir);
+  }
+  if (settingsGameDirEdit_) {
+    connect(settingsGameDirEdit_, &QLineEdit::textChanged, this, &MainWindow::onGameDirEdited);
+  }
+  if (importModeCombo_) {
+    connect(importModeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onImportModeChanged);
+  }
+  if (autoImportCheckbox_) {
+    connect(autoImportCheckbox_, &QCheckBox::toggled, this, &MainWindow::onAutoImportToggled);
+  }
+  if (autoImportModeCombo_) {
+    connect(autoImportModeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onAutoImportModeChanged);
+  }
+  if (saveSettingsBtn_) {
+    connect(saveSettingsBtn_, &QPushButton::clicked, this, &MainWindow::onSaveSettings);
+  }
+  if (categoryTree_) {
+    connect(categoryTree_, &QTreeWidget::itemSelectionChanged, this, &MainWindow::onCategorySelectionChanged);
+    connect(categoryTree_, &QTreeWidget::itemChanged, this, &MainWindow::onCategoryItemChanged);
+  }
+  if (categoryAddRootBtn_) {
+    connect(categoryAddRootBtn_, &QPushButton::clicked, this, &MainWindow::onAddCategoryTopLevel);
+  }
+  if (categoryAddChildBtn_) {
+    connect(categoryAddChildBtn_, &QPushButton::clicked, this, &MainWindow::onAddCategoryChild);
+  }
+  if (categoryRenameBtn_) {
+    connect(categoryRenameBtn_, &QPushButton::clicked, this, &MainWindow::onRenameCategory);
+  }
+  if (categoryDeleteBtn_) {
+    connect(categoryDeleteBtn_, &QPushButton::clicked, this, &MainWindow::onDeleteCategory);
+  }
+  if (categoryMoveUpBtn_) {
+    connect(categoryMoveUpBtn_, &QPushButton::clicked, this, &MainWindow::onMoveCategoryUp);
+  }
+  if (categoryMoveDownBtn_) {
+    connect(categoryMoveDownBtn_, &QPushButton::clicked, this, &MainWindow::onMoveCategoryDown);
+  }
+  if (tagGroupList_) {
+    connect(tagGroupList_, &QListWidget::currentRowChanged, this, &MainWindow::onTagGroupSelectionChanged);
+  }
+  if (tagList_) {
+    connect(tagList_, &QListWidget::currentRowChanged, this, &MainWindow::onTagSelectionChanged);
+  }
+  if (tagGroupAddBtn_) {
+    connect(tagGroupAddBtn_, &QPushButton::clicked, this, &MainWindow::onAddTagGroup);
+  }
+  if (tagGroupRenameBtn_) {
+    connect(tagGroupRenameBtn_, &QPushButton::clicked, this, &MainWindow::onRenameTagGroup);
+  }
+  if (tagGroupDeleteBtn_) {
+    connect(tagGroupDeleteBtn_, &QPushButton::clicked, this, &MainWindow::onDeleteTagGroup);
+  }
+  if (tagAddBtn_) {
+    connect(tagAddBtn_, &QPushButton::clicked, this, &MainWindow::onAddTag);
+  }
+  if (tagRenameBtn_) {
+    connect(tagRenameBtn_, &QPushButton::clicked, this, &MainWindow::onRenameTag);
+  }
+  if (tagDeleteBtn_) {
+    connect(tagDeleteBtn_, &QPushButton::clicked, this, &MainWindow::onDeleteTag);
+  }
+  if (clearDeletedModsBtn_) {
+    connect(clearDeletedModsBtn_, &QPushButton::clicked, this, &MainWindow::onClearDeletedMods);
+  }
+
+  ensureSettingsNavSelection();
   rootLayout->addWidget(stack_, 1);
 
   setCentralWidget(central);
   resize(1280, 760);
   setWindowTitle(QStringLiteral("L4D2 MOD 助手"));
-}
-
-QWidget* MainWindow::buildSettingsPage() {
-  auto* page = new QWidget(this);
-  auto* layout = new QHBoxLayout(page);
-  layout->setContentsMargins(12, 12, 12, 12);
-  layout->setSpacing(0);
-
-  settingsNav_ = new QListWidget(page);
-  settingsNav_->setSelectionMode(QAbstractItemView::SingleSelection);
-  settingsNav_->setFixedWidth(180);
-  settingsNav_->addItem(tr("基础设置"));
-  settingsNav_->addItem(tr("分类管理"));
-  settingsNav_->addItem(tr("标签管理"));
-  settingsNav_->addItem(tr("删除管理"));
-  layout->addWidget(settingsNav_);
-
-  auto* divider = new QFrame(page);
-  divider->setFrameShape(QFrame::VLine);
-  divider->setFrameShadow(QFrame::Sunken);
-  divider->setLineWidth(1);
-  divider->setMidLineWidth(0);
-  layout->addWidget(divider);
-
-  settingsStack_ = new QStackedWidget(page);
-  auto wrapScroll = [](QWidget* content) {
-    auto* scroll = new QScrollArea;
-    scroll->setWidgetResizable(true);
-    scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setWidget(content);
-    return scroll;
-  };
-  settingsStack_->addWidget(wrapScroll(buildBasicSettingsPane()));
-  settingsStack_->addWidget(wrapScroll(buildCategoryManagementPane()));
-  settingsStack_->addWidget(wrapScroll(buildTagManagementPane()));
-  settingsStack_->addWidget(wrapScroll(buildDeletionPane()));
-  layout->addWidget(settingsStack_, 1);
-
-  connect(settingsNav_, &QListWidget::currentRowChanged, this, &MainWindow::onSettingsNavChanged);
-  ensureSettingsNavSelection();
-
-  return page;
-}
-
-QWidget* MainWindow::buildBasicSettingsPane() {
-  auto* container = new QWidget(this);
-  auto* layout = new QVBoxLayout(container);
-  layout->setContentsMargins(12, 12, 12, 12);
-  layout->setSpacing(16);
-
-  auto* form = new QFormLayout();
-  form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
-  form->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
-  form->setSpacing(12);
-
-  settingsRepoDirEdit_ = new QLineEdit(container);
-  settingsRepoDirEdit_->setPlaceholderText(tr("选择或输入仓库目录"));
-  settingsRepoBrowseBtn_ = new QPushButton(tr("浏览..."), container);
-  auto* repoRow = new QHBoxLayout();
-  repoRow->setContentsMargins(0, 0, 0, 0);
-  repoRow->setSpacing(8);
-  repoRow->addWidget(settingsRepoDirEdit_, 1);
-  repoRow->addWidget(settingsRepoBrowseBtn_);
-  auto* repoWrapper = new QWidget(container);
-  repoWrapper->setLayout(repoRow);
-  form->addRow(tr("仓库目录"), repoWrapper);
-
-  settingsGameDirEdit_ = new QLineEdit(container);
-  settingsGameDirEdit_->setPlaceholderText(tr("选择或输入 L4D2 游戏根目录")); // 引导用户填写游戏根目录
-  settingsGameDirBrowseBtn_ = new QPushButton(tr("浏览..."), container);
-  auto* gameRow = new QHBoxLayout();
-  gameRow->setContentsMargins(0, 0, 0, 0);
-  gameRow->setSpacing(8);
-  gameRow->addWidget(settingsGameDirEdit_, 1);
-  gameRow->addWidget(settingsGameDirBrowseBtn_);
-  auto* gameWrapper = new QWidget(container);
-  gameWrapper->setLayout(gameRow);
-  form->addRow(tr("游戏根目录"), gameWrapper);
-
-  settingsAddonsPathDisplay_ = new QLineEdit(container);
-  settingsAddonsPathDisplay_->setReadOnly(true); // 只读展示推导出的 addons 路径
-  settingsAddonsPathDisplay_->setPlaceholderText(tr("自动识别的 addons 目录"));
-  form->addRow(tr("addons 目录"), settingsAddonsPathDisplay_);
-
-  settingsWorkshopPathDisplay_ = new QLineEdit(container);
-  settingsWorkshopPathDisplay_->setReadOnly(true); // 只读展示推导出的 workshop 路径
-  settingsWorkshopPathDisplay_->setPlaceholderText(tr("自动识别的 workshop 目录"));
-  form->addRow(tr("workshop 目录"), settingsWorkshopPathDisplay_);
-
-  importModeCombo_ = new QComboBox(container);
-  importModeCombo_->addItem(tr("剪切到仓库目录"), static_cast<int>(ImportAction::Cut));
-  importModeCombo_->addItem(tr("复制到仓库目录"), static_cast<int>(ImportAction::Copy));
-  importModeCombo_->addItem(tr("仅链接"), static_cast<int>(ImportAction::None));
-  form->addRow(tr("入库方式"), importModeCombo_);
-
-  autoImportCheckbox_ = new QCheckBox(tr("自动导入游戏目录下的 addons"), container);
-  form->addRow(QString(), autoImportCheckbox_);
-
-  autoImportModeCombo_ = new QComboBox(container);
-  autoImportModeCombo_->addItem(tr("剪切到仓库目录"), static_cast<int>(AddonsAutoImportMethod::Cut));
-  autoImportModeCombo_->addItem(tr("复制到仓库目录"), static_cast<int>(AddonsAutoImportMethod::Copy));
-  autoImportModeCombo_->addItem(tr("仅链接"), static_cast<int>(AddonsAutoImportMethod::Link));
-  form->addRow(tr("自动导入方式"), autoImportModeCombo_);
-
-  layout->addLayout(form);
-
-  settingsStatusLabel_ = new QLabel(container);
-  settingsStatusLabel_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-
-  saveSettingsBtn_ = new QPushButton(tr("保存设置"), container);
-  auto* actionRow = new QHBoxLayout();
-  actionRow->setContentsMargins(0, 0, 0, 0);
-  actionRow->setSpacing(12);
-  actionRow->addWidget(settingsStatusLabel_, 1);
-  actionRow->addWidget(saveSettingsBtn_);
-  layout->addLayout(actionRow);
-
-  layout->addStretch(1);
-
-  connect(settingsRepoBrowseBtn_, &QPushButton::clicked, this, &MainWindow::onBrowseRepoDir);
-  connect(settingsGameDirBrowseBtn_, &QPushButton::clicked, this, &MainWindow::onBrowseGameDir);
-  connect(settingsGameDirEdit_, &QLineEdit::textChanged, this, &MainWindow::onGameDirEdited);
-  connect(importModeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onImportModeChanged);
-  connect(autoImportCheckbox_, &QCheckBox::toggled, this, &MainWindow::onAutoImportToggled);
-  connect(autoImportModeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onAutoImportModeChanged);
-  connect(saveSettingsBtn_, &QPushButton::clicked, this, &MainWindow::onSaveSettings);
-
-  return container;
-}
-
-QWidget* MainWindow::buildCategoryManagementPane() {
-  auto* container = new QWidget(this);
-  auto* layout = new QVBoxLayout(container);
-  layout->setContentsMargins(12, 12, 12, 12);
-  layout->setSpacing(12);
-
-  categoryTree_ = new QTreeWidget(container);
-  categoryTree_->setColumnCount(2);
-  categoryTree_->setHeaderLabels({tr("分类"), tr("优先级")});
-  categoryTree_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-  categoryTree_->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-  categoryTree_->setSelectionMode(QAbstractItemView::SingleSelection);
-  categoryTree_->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed | QAbstractItemView::SelectedClicked);
-  layout->addWidget(categoryTree_, 1);
-
-  auto* buttonRow = new QHBoxLayout();
-  buttonRow->setContentsMargins(0, 0, 0, 0);
-  buttonRow->setSpacing(8);
-  categoryAddRootBtn_ = new QPushButton(tr("新增一级分类"), container);
-  categoryAddChildBtn_ = new QPushButton(tr("新增子分类"), container);
-  categoryRenameBtn_ = new QPushButton(tr("重命名"), container);
-  categoryDeleteBtn_ = new QPushButton(tr("删除"), container);
-  categoryMoveUpBtn_ = new QPushButton(tr("上升"), container);
-  categoryMoveDownBtn_ = new QPushButton(tr("下降"), container);
-  buttonRow->addWidget(categoryAddRootBtn_);
-  buttonRow->addWidget(categoryAddChildBtn_);
-  buttonRow->addWidget(categoryRenameBtn_);
-  buttonRow->addWidget(categoryDeleteBtn_);
-  buttonRow->addWidget(categoryMoveUpBtn_);
-  buttonRow->addWidget(categoryMoveDownBtn_);
-  buttonRow->addStretch(1);
-  layout->addLayout(buttonRow);
-
-  connect(categoryTree_, &QTreeWidget::itemSelectionChanged, this, &MainWindow::onCategorySelectionChanged);
-  connect(categoryTree_, &QTreeWidget::itemChanged, this, &MainWindow::onCategoryItemChanged);
-  connect(categoryAddRootBtn_, &QPushButton::clicked, this, &MainWindow::onAddCategoryTopLevel);
-  connect(categoryAddChildBtn_, &QPushButton::clicked, this, &MainWindow::onAddCategoryChild);
-  connect(categoryRenameBtn_, &QPushButton::clicked, this, &MainWindow::onRenameCategory);
-  connect(categoryDeleteBtn_, &QPushButton::clicked, this, &MainWindow::onDeleteCategory);
-  connect(categoryMoveUpBtn_, &QPushButton::clicked, this, &MainWindow::onMoveCategoryUp);
-  connect(categoryMoveDownBtn_, &QPushButton::clicked, this, &MainWindow::onMoveCategoryDown);
-
-  return container;
-}
-
-QWidget* MainWindow::buildTagManagementPane() {
-  auto* container = new QWidget(this);
-  auto* layout = new QVBoxLayout(container);
-  layout->setContentsMargins(12, 12, 12, 12);
-  layout->setSpacing(12);
-
-  auto* contentRow = new QHBoxLayout();
-  contentRow->setContentsMargins(0, 0, 0, 0);
-  contentRow->setSpacing(12);
-
-  auto* groupPanel = new QVBoxLayout();
-  groupPanel->setSpacing(8);
-  tagGroupList_ = new QListWidget(container);
-  tagGroupList_->setSelectionMode(QAbstractItemView::SingleSelection);
-  groupPanel->addWidget(tagGroupList_, 1);
-  auto* groupButtons = new QHBoxLayout();
-  groupButtons->setSpacing(8);
-  tagGroupAddBtn_ = new QPushButton(tr("新增组"), container);
-  tagGroupRenameBtn_ = new QPushButton(tr("重命名"), container);
-  tagGroupDeleteBtn_ = new QPushButton(tr("删除"), container);
-  groupButtons->addWidget(tagGroupAddBtn_);
-  groupButtons->addWidget(tagGroupRenameBtn_);
-  groupButtons->addWidget(tagGroupDeleteBtn_);
-  groupButtons->addStretch(1);
-  groupPanel->addLayout(groupButtons);
-
-  auto* tagPanel = new QVBoxLayout();
-  tagPanel->setSpacing(8);
-  tagList_ = new QListWidget(container);
-  tagList_->setSelectionMode(QAbstractItemView::SingleSelection);
-  tagPanel->addWidget(tagList_, 1);
-  auto* tagButtons = new QHBoxLayout();
-  tagButtons->setSpacing(8);
-  tagAddBtn_ = new QPushButton(tr("新增标签"), container);
-  tagRenameBtn_ = new QPushButton(tr("重命名"), container);
-  tagDeleteBtn_ = new QPushButton(tr("删除"), container);
-  tagButtons->addWidget(tagAddBtn_);
-  tagButtons->addWidget(tagRenameBtn_);
-  tagButtons->addWidget(tagDeleteBtn_);
-  tagButtons->addStretch(1);
-  tagPanel->addLayout(tagButtons);
-
-  contentRow->addLayout(groupPanel, 1);
-  contentRow->addLayout(tagPanel, 1);
-  layout->addLayout(contentRow, 1);
-  layout->addStretch(1);
-
-  connect(tagGroupList_, &QListWidget::currentRowChanged, this, &MainWindow::onTagGroupSelectionChanged);
-  connect(tagList_, &QListWidget::currentRowChanged, this, &MainWindow::onTagSelectionChanged);
-  connect(tagGroupAddBtn_, &QPushButton::clicked, this, &MainWindow::onAddTagGroup);
-  connect(tagGroupRenameBtn_, &QPushButton::clicked, this, &MainWindow::onRenameTagGroup);
-  connect(tagGroupDeleteBtn_, &QPushButton::clicked, this, &MainWindow::onDeleteTagGroup);
-  connect(tagAddBtn_, &QPushButton::clicked, this, &MainWindow::onAddTag);
-  connect(tagRenameBtn_, &QPushButton::clicked, this, &MainWindow::onRenameTag);
-  connect(tagDeleteBtn_, &QPushButton::clicked, this, &MainWindow::onDeleteTag);
-
-  return container;
-}
-
-QWidget* MainWindow::buildDeletionPane() {
-  auto* container = new QWidget(this);
-  auto* layout = new QVBoxLayout(container);
-  layout->setContentsMargins(12, 12, 12, 12);
-  layout->setSpacing(16);
-
-  retainDeletedCheckbox_ = new QCheckBox(tr("删除 MOD 时保留数据记录"), container);
-  layout->addWidget(retainDeletedCheckbox_);
-
-  auto* noteLabel = new QLabel(tr("如果关闭此选项，删除 MOD 时会在数据库中完全移除记录。"), container);
-  noteLabel->setWordWrap(true);
-  layout->addWidget(noteLabel);
-
-  clearDeletedModsBtn_ = new QPushButton(tr("清除已删除MOD数据记录"), container);
-  layout->addWidget(clearDeletedModsBtn_);
-  layout->addStretch(1);
-
-  connect(clearDeletedModsBtn_, &QPushButton::clicked, this, &MainWindow::onClearDeletedMods);
-
-  return container;
 }
 
 void MainWindow::refreshBasicSettingsUi() {

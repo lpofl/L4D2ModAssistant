@@ -37,6 +37,7 @@ class RepositoryPage;
 class RepositoryPresenter;
 class SelectorPage;
 class SelectorPresenter;
+class SettingsPage;
 
 /**
  * @brief Application main window hosting repository/selector/settings tabs.
@@ -87,11 +88,6 @@ private slots:
 
 private:
   void setupUi();
-  QWidget* buildSettingsPage();
-  QWidget* buildBasicSettingsPane();
-  QWidget* buildCategoryManagementPane();
-  QWidget* buildTagManagementPane();
-  QWidget* buildDeletionPane();
   void onRepositoryModsReloaded();
   void reloadRepoSelectorData();
   void applySelectorFilter();
@@ -154,6 +150,7 @@ private:
   QLabel* strategyInfoLabel_{};
 
   // Settings page widgets
+  SettingsPage* settingsPage_{};
   QListWidget* settingsNav_{};
   QStackedWidget* settingsStack_{};
   QLineEdit* settingsRepoDirEdit_{};

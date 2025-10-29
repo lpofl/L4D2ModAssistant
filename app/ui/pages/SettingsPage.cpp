@@ -15,6 +15,8 @@
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
 
+#include "core/config/Settings.h"
+
 SettingsPage::SettingsPage(QWidget* parent) : QWidget(parent) {
   auto* layout = new QHBoxLayout(this);
   layout->setContentsMargins(12, 12, 12, 12);
@@ -224,4 +226,3 @@ QWidget* SettingsPage::buildDeletionPane() {
   layout->addStretch(1);
   return container;
 }
-

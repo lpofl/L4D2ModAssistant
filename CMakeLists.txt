@@ -38,6 +38,8 @@ add_executable(L4D2ModAssistant
   app/ui/pages/RepositoryPage.h
   app/ui/pages/SelectorPage.cpp
   app/ui/pages/SelectorPage.h
+  app/ui/pages/SettingsPage.cpp
+  app/ui/pages/SettingsPage.h
   app/ui/presenters/SelectorPresenter.cpp
   app/ui/presenters/SelectorPresenter.h
   app/services/ApplicationInitializer.cpp
