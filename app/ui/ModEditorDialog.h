@@ -42,6 +42,32 @@ public:
   /// Gather tag descriptors chosen/added by the user.
   std::vector<TagDescriptor> selectedTags() const;
 
+  enum class RelationKind {
+    Conflict,
+    Requires,
+    RequiredBy,
+    Homologous,
+    CustomMaster,
+    CustomSlave
+  };
+
+  enum class RelationTarget {
+    Mod,
+    Category,
+    Tag
+  };
+
+  /// 向外提供当前对话框内选择的关系配置，供调用方落库。
+  struct RelationSelection {
+    RelationKind kind{RelationKind::Conflict};
+    RelationTarget target{RelationTarget::Mod};
+    QString targetValue;
+    QString slotKey;
+    std::optional<int> targetId;
+  };
+
+  std::vector<RelationSelection> relationSelections() const;
+
 protected:
   void accept() override;
 
@@ -66,22 +92,6 @@ private:
     QPushButton* removeBtn{nullptr};
   };
 
-  enum class RelationKind {
-    Conflict,
-    Requires,
-    RequiredBy,
-    Homologous,
-    CustomMaster,
-    CustomSlave,
-    Party
-  };
-
-  enum class RelationTarget {
-    Mod,
-    Category,
-    Tag
-  };
-
   struct RelationRowWidgets {
     QWidget* container{nullptr};
     QComboBox* kindCombo{nullptr};
@@ -90,13 +100,6 @@ private:
     QLineEdit* slotEdit{nullptr};
     QPushButton* addBtn{nullptr};
     QPushButton* removeBtn{nullptr};
-  };
-
-  struct RelationSelection {
-    RelationKind kind{RelationKind::Conflict};
-    RelationTarget target{RelationTarget::Mod};
-    QString targetValue;
-    QString slotKey;
   };
 
   void buildUi();

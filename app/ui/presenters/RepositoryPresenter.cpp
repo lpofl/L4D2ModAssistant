@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
+#include <set>
+#include <tuple>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -22,6 +25,7 @@
 #include <QStringList>
 #include <QTableWidgetItem>
 #include <QTextEdit>
+#include <QRegularExpression>
 
 #include "app/services/ImportService.h"
 #include "app/ui/ImportFolderDialog.h"
@@ -136,6 +140,158 @@ ModRow buildModFromFile(const QFileInfo& info) {
     mod.source_platform = QStringLiteral("steam").toStdString();
   }
   return mod;
+}
+
+QString relationKindLabel(ModEditorDialog::RelationKind kind) {
+  switch (kind) {
+    case ModEditorDialog::RelationKind::Conflict: return RepositoryPresenter::tr("冲突");
+    case ModEditorDialog::RelationKind::Requires: return RepositoryPresenter::tr("前置");
+    case ModEditorDialog::RelationKind::RequiredBy: return RepositoryPresenter::tr("后置");
+    case ModEditorDialog::RelationKind::Homologous: return RepositoryPresenter::tr("同质");
+    case ModEditorDialog::RelationKind::CustomMaster: return RepositoryPresenter::tr("自定义（主）");
+    case ModEditorDialog::RelationKind::CustomSlave: return RepositoryPresenter::tr("自定义（从）");
+  }
+  return RepositoryPresenter::tr("未知");
+}
+
+QString relationTargetLabel(ModEditorDialog::RelationTarget target) {
+  switch (target) {
+    case ModEditorDialog::RelationTarget::Mod: return RepositoryPresenter::tr("MOD");
+    case ModEditorDialog::RelationTarget::Category: return RepositoryPresenter::tr("分类");
+    case ModEditorDialog::RelationTarget::Tag: return RepositoryPresenter::tr("标签");
+  }
+  return RepositoryPresenter::tr("未知");
+}
+
+// 提取关系目标的 MOD ID，如果无法解析则返回空。
+std::optional<int> resolveTargetModId(const ModEditorDialog::RelationSelection& selection,
+                                      RepositoryService& repo,
+                                      const QRegularExpression& idPattern) {
+  if (selection.target != ModEditorDialog::RelationTarget::Mod) {
+    return std::nullopt;
+  }
+  if (selection.targetId && *selection.targetId > 0) {
+    if (repo.findMod(*selection.targetId)) {
+      return selection.targetId;
+    }
+  }
+  bool ok = false;
+  int parsed = selection.targetValue.toInt(&ok);
+  if (ok && parsed > 0 && repo.findMod(parsed)) {
+    return parsed;
+  }
+  const auto match = idPattern.match(selection.targetValue);
+  if (match.hasMatch()) {
+    bool okId = false;
+    parsed = match.captured(1).toInt(&okId);
+    if (okId && parsed > 0 && repo.findMod(parsed)) {
+      return parsed;
+    }
+  }
+  return std::nullopt;
+}
+
+// 将对话框中的关系选择转换为可写入数据库的记录，同时返回告警信息。
+std::vector<ModRelationRow> buildRelationRowsForMod(int modId,
+                                                    const std::vector<ModEditorDialog::RelationSelection>& selections,
+                                                    RepositoryService& repo,
+                                                    QStringList& warnings) {
+  static const QRegularExpression idPattern(QStringLiteral("(\\d+)"));
+  std::set<std::tuple<QString, int, int>> dedup;
+  std::vector<ModRelationRow> rows;
+  rows.reserve(selections.size());
+
+  for (const auto& selection : selections) {
+    const QString kindName = relationKindLabel(selection.kind);
+    if (selection.target != ModEditorDialog::RelationTarget::Mod) {
+      warnings << RepositoryPresenter::tr("关系“%1”暂不支持保存到“%2”，已忽略。")
+                      .arg(kindName, relationTargetLabel(selection.target));
+      continue;
+    }
+
+    const auto targetIdOpt = resolveTargetModId(selection, repo, idPattern);
+    if (!targetIdOpt.has_value()) {
+      warnings << RepositoryPresenter::tr("关系“%1”的目标“%2”无法识别，已忽略。")
+                      .arg(kindName, selection.targetValue);
+      continue;
+    }
+    const int targetId = *targetIdOpt;
+    if (targetId == modId) {
+      warnings << RepositoryPresenter::tr("忽略指向自身的关系“%1”。").arg(kindName);
+      continue;
+    }
+
+    QString typeName;
+    int aId = 0;
+    int bId = 0;
+    switch (selection.kind) {
+      case ModEditorDialog::RelationKind::Conflict:
+        typeName = QStringLiteral("conflicts");
+        aId = std::min(modId, targetId);
+        bId = std::max(modId, targetId);
+        break;
+      case ModEditorDialog::RelationKind::Requires:
+        typeName = QStringLiteral("requires");
+        aId = modId;
+        bId = targetId;
+        break;
+      case ModEditorDialog::RelationKind::RequiredBy:
+        typeName = QStringLiteral("requires");
+        aId = targetId;
+        bId = modId;
+        break;
+      case ModEditorDialog::RelationKind::Homologous:
+        typeName = QStringLiteral("homologous");
+        aId = std::min(modId, targetId);
+        bId = std::max(modId, targetId);
+        break;
+      case ModEditorDialog::RelationKind::CustomMaster:
+        typeName = QStringLiteral("custom_master");
+        aId = targetId;
+        bId = modId;
+        break;
+      case ModEditorDialog::RelationKind::CustomSlave:
+        typeName = QStringLiteral("custom_master");
+        aId = modId;
+        bId = targetId;
+        break;
+    }
+
+    if (typeName.isEmpty() || aId == 0 || bId == 0) {
+      warnings << RepositoryPresenter::tr("关系“%1”数据不完整，已忽略。").arg(kindName);
+      continue;
+    }
+
+    if (selection.kind == ModEditorDialog::RelationKind::Conflict ||
+        selection.kind == ModEditorDialog::RelationKind::Homologous) {
+      if (aId > bId) {
+        std::swap(aId, bId);
+      }
+    }
+
+    const auto key = std::make_tuple(typeName, aId, bId);
+    if (!dedup.insert(key).second) {
+      warnings << RepositoryPresenter::tr("关系“%1”与目标 ID %2 重复，已自动跳过。")
+                      .arg(kindName)
+                      .arg(targetId);
+      continue;
+    }
+
+    ModRelationRow row{};
+    row.id = 0;
+    row.a_mod_id = aId;
+    row.b_mod_id = bId;
+    row.type = typeName.toStdString();
+    if (!selection.slotKey.isEmpty() && typeName == QStringLiteral("custom_master")) {
+      row.slot_key = selection.slotKey.trimmed().toStdString();
+    } else {
+      row.slot_key.reset();
+    }
+    row.note.reset();
+    rows.push_back(std::move(row));
+  }
+
+  return rows;
 }
 
 } // namespace
@@ -589,6 +745,7 @@ void RepositoryPresenter::handleImportRequested() {
   }
 
   ModRow mod = dialog.modData();
+  const auto relations = dialog.relationSelections();
   QStringList transferErrors;
   if (!importService_ || !importService_->ensureModFilesInRepository(*settings_, mod, transferErrors)) {
     QMessageBox::warning(resolveParent(dialogParent_, page_), tr("导入失败"), transferErrors.join(QStringLiteral("\n")));
@@ -596,7 +753,15 @@ void RepositoryPresenter::handleImportRequested() {
   }
 
   try {
-    repo_->createModWithTags(mod, dialog.selectedTags());
+    const int newModId = repo_->createModWithTags(mod, dialog.selectedTags());
+    mod.id = newModId;
+    QStringList relationWarnings;
+    const auto relationRows = buildRelationRowsForMod(newModId, relations, *repo_, relationWarnings);
+    repo_->replaceRelationsForMod(newModId, relationRows);
+    if (!relationWarnings.isEmpty()) {
+      QMessageBox::warning(resolveParent(dialogParent_, page_), tr("关系处理提示"),
+                           relationWarnings.join(QStringLiteral("\n")));
+    }
     loadData();
   } catch (const std::exception& e) {
     QMessageBox::warning(resolveParent(dialogParent_, page_), tr("导入失败"),
@@ -708,6 +873,7 @@ void RepositoryPresenter::handleEditRequested() {
   }
 
   ModRow updated = dialog.modData();
+  const auto relations = dialog.relationSelections();
   QStringList transferErrors;
   if (!importService_ || !importService_->ensureModFilesInRepository(*settings_, updated, transferErrors)) {
     QMessageBox::warning(resolveParent(dialogParent_, page_), tr("更新失败"), transferErrors.join(QStringLiteral("\n")));
@@ -716,6 +882,13 @@ void RepositoryPresenter::handleEditRequested() {
 
   try {
     repo_->updateModWithTags(updated, dialog.selectedTags());
+    QStringList relationWarnings;
+    const auto relationRows = buildRelationRowsForMod(updated.id, relations, *repo_, relationWarnings);
+    repo_->replaceRelationsForMod(updated.id, relationRows);
+    if (!relationWarnings.isEmpty()) {
+      QMessageBox::warning(resolveParent(dialogParent_, page_), tr("关系处理提示"),
+                           relationWarnings.join(QStringLiteral("\n")));
+    }
     loadData();
     updateDetailForMod(updated.id);
   } catch (const std::exception& e) {

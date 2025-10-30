@@ -69,6 +69,8 @@ public:
   int addRelation(const ModRelationRow& relation);
   void removeRelation(int relationId);
   void removeRelation(int aModId, int bModId, const std::string& type);
+  /// 批量替换指定 MOD 的关系记录，内部以事务方式先删后写。
+  void replaceRelationsForMod(int modId, const std::vector<ModRelationRow>& relations);
 
   /// Fixed bundle management.
   std::vector<FixedBundleRow> listFixedBundles() const;

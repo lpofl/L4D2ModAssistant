@@ -88,7 +88,6 @@ ModEditorDialog::RelationKind ModEditorDialog::relationKindFromData(int value) {
     case 3: return ModEditorDialog::RelationKind::Homologous;
     case 4: return ModEditorDialog::RelationKind::CustomMaster;
     case 5: return ModEditorDialog::RelationKind::CustomSlave;
-    case 6: return ModEditorDialog::RelationKind::Party;
     default: return ModEditorDialog::RelationKind::Conflict;
   }
 }
@@ -110,7 +109,6 @@ int ModEditorDialog::toInt(ModEditorDialog::RelationKind kind) {
     case ModEditorDialog::RelationKind::Homologous: return 3;
     case ModEditorDialog::RelationKind::CustomMaster: return 4;
     case ModEditorDialog::RelationKind::CustomSlave: return 5;
-    case ModEditorDialog::RelationKind::Party: return 6;
   }
   return 0;
 }
@@ -704,9 +702,8 @@ ModEditorDialog::RelationRowWidgets* ModEditorDialog::addRelationRow(RelationKin
   row->kindCombo->addItem(tr("前置"), toInt(RelationKind::Requires));
   row->kindCombo->addItem(tr("后置"), toInt(RelationKind::RequiredBy));
   row->kindCombo->addItem(tr("同质"), toInt(RelationKind::Homologous));
-  row->kindCombo->addItem(tr("主从（主）"), toInt(RelationKind::CustomMaster));
-  row->kindCombo->addItem(tr("主从（从）"), toInt(RelationKind::CustomSlave));
-  row->kindCombo->addItem(tr("多人包"), toInt(RelationKind::Party));
+  row->kindCombo->addItem(tr("自定义（主）"), toInt(RelationKind::CustomMaster));
+  row->kindCombo->addItem(tr("自定义（从）"), toInt(RelationKind::CustomSlave));
   row->kindCombo->setCurrentIndex(row->kindCombo->findData(toInt(kind)));
 
   row->targetTypeCombo = new QComboBox(row->container);
@@ -846,7 +843,7 @@ void ModEditorDialog::updateRelationRowKind(RelationRowWidgets* row) {
   }
   const auto kind = relationKindFromData(row->kindCombo->currentData().toInt());
   const bool modOnly = (kind == RelationKind::Homologous || kind == RelationKind::CustomMaster ||
-                        kind == RelationKind::CustomSlave || kind == RelationKind::Party);
+                        kind == RelationKind::CustomSlave);
   row->targetTypeCombo->setEnabled(!modOnly);
   if (modOnly) {
     const int index = row->targetTypeCombo->findData(toInt(RelationTarget::Mod));
@@ -855,17 +852,21 @@ void ModEditorDialog::updateRelationRowKind(RelationRowWidgets* row) {
     }
   }
 
-  const bool needsSlot = (kind == RelationKind::CustomMaster || kind == RelationKind::CustomSlave);
+  const bool showSlot = (kind == RelationKind::CustomMaster || kind == RelationKind::CustomSlave);
+  const bool slotEditable = (kind == RelationKind::CustomSlave);
   if (row->slotEdit) {
-    row->slotEdit->setVisible(needsSlot);
-    if (needsSlot) {
-      if (kind == RelationKind::CustomMaster) {
-        row->slotEdit->setPlaceholderText(tr("槽位键（主）"));
-      } else {
-        row->slotEdit->setPlaceholderText(tr("槽位键（从）"));
-      }
-    } else {
+    row->slotEdit->setVisible(showSlot);
+    row->slotEdit->setReadOnly(!slotEditable);
+    if (!showSlot) {
       row->slotEdit->clear();
+      return;
+    }
+    if (slotEditable) {
+      row->slotEdit->setPlaceholderText(tr("槽位键（自定义从）"));
+      row->slotEdit->setToolTip(tr("自定义从关系需要填写槽位键，用于区分不同槽位的从属 MOD。"));
+    } else {
+      row->slotEdit->setPlaceholderText(tr("槽位键（由自定义从填写）"));
+      row->slotEdit->setToolTip(tr("当前为自定义（主）关系，槽位由对应的自定义（从）关系维护。"));
     }
   }
 }
@@ -941,18 +942,29 @@ std::vector<ModEditorDialog::RelationSelection> ModEditorDialog::selectedRelatio
     RelationSelection selection;
     selection.kind = relationKindFromData(row->kindCombo->currentData().toInt());
     selection.target = relationTargetFromData(row->targetTypeCombo->currentData().toInt());
+    selection.targetId.reset();
     if (selection.target == RelationTarget::Mod || selection.target == RelationTarget::Category) {
-      const int id = row->targetValueCombo->currentData().toInt();
-      selection.targetValue = id > 0 ? QString::number(id) : value;
+      bool ok = false;
+      const QVariant data = row->targetValueCombo->currentData();
+      const int id = data.isValid() ? data.toInt(&ok) : 0;
+      if (ok && id > 0) {
+        selection.targetId = id;
+      }
+      selection.targetValue = selection.targetId.has_value() ? QString::number(*selection.targetId) : value;
     } else {
       selection.targetValue = value;
     }
-    if (row->slotEdit && row->slotEdit->isVisible()) {
+    if (row->slotEdit) {
       selection.slotKey = row->slotEdit->text().trimmed();
     }
     selections.push_back(std::move(selection));
   }
   return selections;
+}
+
+std::vector<ModEditorDialog::RelationSelection> ModEditorDialog::relationSelections() const {
+  // 封装内部选中结果，交由调用方执行进一步的关系落库逻辑。
+  return selectedRelations();
 }
 
 void ModEditorDialog::loadAttributeOptions() {
@@ -1062,15 +1074,14 @@ void ModEditorDialog::setMod(const ModRow& mod, const std::vector<TagDescriptor>
         isSymmetric = true;
       } else if (rel.type == "custom_master") {
         if (rel.a_mod_id == mod.id) {
-          kind = RelationKind::CustomMaster;
-          targetModId = rel.b_mod_id;
-        } else {
           kind = RelationKind::CustomSlave;
+          targetModId = rel.b_mod_id;
+        } else if (rel.b_mod_id == mod.id) {
+          kind = RelationKind::CustomMaster;
           targetModId = rel.a_mod_id;
+        } else {
+          continue;
         }
-      } else if (rel.type == "party") {
-        kind = RelationKind::Party;
-        isSymmetric = true;
       } else {
         continue;
       }
@@ -1177,9 +1188,8 @@ void ModEditorDialog::accept() {
 
   const auto relations = selectedRelations();
   for (const auto& relation : relations) {
-    if ((relation.kind == RelationKind::CustomMaster || relation.kind == RelationKind::CustomSlave) &&
-        relation.slotKey.trimmed().isEmpty()) {
-      QMessageBox::warning(this, tr("缺少槽位键"), tr("主从关系需要填写槽位键。"));
+    if (relation.kind == RelationKind::CustomSlave && relation.slotKey.isEmpty()) {
+      QMessageBox::warning(this, tr("缺少槽位键"), tr("自定义（从）关系需要填写槽位键。"));
       return;
     }
   }

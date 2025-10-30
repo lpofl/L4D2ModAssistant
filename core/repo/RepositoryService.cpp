@@ -199,6 +199,19 @@ void RepositoryService::removeRelation(int aModId, int bModId, const std::string
   relationDao_->removeBetween(aModId, bModId, type);
 }
 
+void RepositoryService::replaceRelationsForMod(int modId, const std::vector<ModRelationRow>& relations) {
+  // 以事务方式刷新指定 MOD 的全部关系，防止中途失败留下不一致数据。
+  Db::Tx tx(*db_);
+  auto existing = relationDao_->listByMod(modId);
+  for (const auto& rel : existing) {
+    relationDao_->removeById(rel.id);
+  }
+  for (const auto& rel : relations) {
+    addRelation(rel);
+  }
+  tx.commit();
+}
+
 std::vector<FixedBundleRow> RepositoryService::listFixedBundles() const {
   return fixedBundleDao_->listBundles();
 }
