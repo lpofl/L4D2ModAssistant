@@ -25,6 +25,7 @@ void RepositoryPage::buildUi() {
   filterPanel_ = new ModFilterPanel(this);
 
   importBtn_ = new QPushButton(tr("导入"), this);
+  importFolderBtn_ = new QPushButton(tr("导入文件夹"), this);
   filterRow->addWidget(new QLabel(tr("筛选项:"), this));
   filterRow->addWidget(filterPanel_, 1);
 
@@ -32,6 +33,8 @@ void RepositoryPage::buildUi() {
   filterRow->addWidget(showDeletedCheckBox_);
 
   filterRow->addStretch(1);
+  // 在导入按钮区域加入批量导入入口
+  filterRow->addWidget(importFolderBtn_);
   filterRow->addWidget(importBtn_);
   layout->addLayout(filterRow);
 
@@ -115,6 +118,10 @@ void RepositoryPage::wireSignals() {
   if (importBtn_) {
     connect(importBtn_, &QPushButton::clicked, this, &RepositoryPage::importRequested);
   }
+  if (importFolderBtn_) {
+    // 批量导入按钮触发新对话框
+    connect(importFolderBtn_, &QPushButton::clicked, this, &RepositoryPage::importFolderRequested);
+  }
   if (editBtn_) {
     connect(editBtn_, &QPushButton::clicked, this, &RepositoryPage::editRequested);
   }
@@ -128,4 +135,3 @@ void RepositoryPage::wireSignals() {
     connect(showDeletedCheckBox_, &QCheckBox::toggled, this, &RepositoryPage::showDeletedToggled);
   }
 }
-

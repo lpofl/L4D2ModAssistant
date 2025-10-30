@@ -72,6 +72,7 @@ signals:
 private slots:
   void handleRefreshRequested();
   void handleImportRequested();
+  void handleImportFolderRequested();
   void handleEditRequested();
   void handleDeleteRequested();
   void handleShowDeletedToggled(bool checked);
@@ -119,4 +120,3 @@ private:
   std::unordered_map<int, std::vector<TagWithGroupRow>> modTagsCache_;
   bool suppressFilterSignals_ = false;
 };
-

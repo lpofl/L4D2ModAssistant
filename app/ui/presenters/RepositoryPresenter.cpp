@@ -1,10 +1,15 @@
 #include "app/ui/presenters/RepositoryPresenter.h"
 
 #include <algorithm>
+#include <array>
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
+#include <QDirIterator>
+#include <QFile>
 #include <QFileInfo>
 #include <QLabel>
 #include <QLineEdit>
@@ -14,10 +19,12 @@
 #include <QSortFilterProxyModel>
 #include <QStandardItem>
 #include <QStandardItemModel>
+#include <QStringList>
 #include <QTableWidgetItem>
 #include <QTextEdit>
 
 #include "app/services/ImportService.h"
+#include "app/ui/ImportFolderDialog.h"
 #include "app/ui/ModEditorDialog.h"
 #include "app/ui/components/ModFilterPanel.h"
 #include "app/ui/components/ModTableWidget.h"
@@ -37,6 +44,98 @@ QString toDisplay(const std::string& value, const QString& fallback = {}) {
 
 QWidget* resolveParent(QWidget* preferred, QWidget* fallback) {
   return preferred ? preferred : fallback;
+}
+
+// 仅允许识别为 MOD 文件的后缀
+bool isSupportedModFile(const QFileInfo& info) {
+  if (!info.isFile()) {
+    return false;
+  }
+  const QString suffix = info.suffix().toLower();
+  if (suffix.isEmpty()) {
+    return false;
+  }
+  static const std::array<QString, 4> kAllowedExt = {QStringLiteral("vpk"),
+                                                     QStringLiteral("zip"),
+                                                     QStringLiteral("7z"),
+                                                     QStringLiteral("rar")};
+  return std::any_of(kAllowedExt.begin(), kAllowedExt.end(), [&](const QString& ext) { return suffix == ext; });
+}
+
+// 规范化名称以便匹配封面
+QString normalizeName(const QString& text) {
+  QString normalized;
+  normalized.reserve(text.size());
+  for (const QChar& ch : text) {
+    if (ch.isLetterOrNumber()) {
+      normalized.append(ch.toLower());
+    }
+  }
+  return normalized;
+}
+
+// 在同级目录匹配可能的封面文件
+QString locateCoverCandidate(const QFileInfo& fileInfo, const QString& displayName) {
+  static const QStringList filters = {"*.png", "*.jpg", "*.jpeg", "*.bmp", "*.webp"};
+  const QDir dir = fileInfo.dir();
+  const QString normalizedBase = normalizeName(fileInfo.completeBaseName());
+  const QString normalizedDisplay = normalizeName(displayName);
+  const QFileInfoList images = dir.entryInfoList(filters, QDir::Files | QDir::Readable);
+  for (const QFileInfo& image : images) {
+    if (!normalizedBase.isEmpty() && normalizeName(image.completeBaseName()) == normalizedBase) {
+      return image.absoluteFilePath();
+    }
+  }
+  if (!normalizedDisplay.isEmpty()) {
+    for (const QFileInfo& image : images) {
+      if (normalizeName(image.completeBaseName()).contains(normalizedDisplay)) {
+        return image.absoluteFilePath();
+      }
+    }
+  }
+  return {};
+}
+
+// 根据文件生成初始的 ModRow 元数据
+ModRow buildModFromFile(const QFileInfo& info) {
+  ModRow mod;
+  const QString baseName = info.completeBaseName().trimmed();
+  const QString fileName = info.fileName().trimmed();
+  const QString chosenName = baseName.isEmpty() ? fileName : baseName;
+  mod.name = chosenName.toStdString();
+  mod.file_path = QDir::toNativeSeparators(info.absoluteFilePath()).toStdString();
+  mod.size_mb = static_cast<double>(info.size()) / (1024.0 * 1024.0);
+
+  QFile file(info.absoluteFilePath());
+  if (file.open(QIODevice::ReadOnly)) {
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    while (!file.atEnd()) {
+      hash.addData(file.read(1 << 16));
+    }
+    mod.file_hash = QString::fromLatin1(hash.result().toHex()).toStdString();
+  }
+
+  const QDateTime lastModified = info.lastModified();
+  if (lastModified.isValid()) {
+    const QString dateText = lastModified.date().toString(QStringLiteral("yyyy-MM-dd"));
+    mod.last_published_at = dateText.toStdString();
+    mod.last_saved_at = dateText.toStdString();
+  }
+
+  const QString coverPath = locateCoverCandidate(info, chosenName);
+  if (!coverPath.isEmpty()) {
+    mod.cover_path = QDir::toNativeSeparators(coverPath).toStdString();
+  }
+
+  const bool isNumericId =
+      !baseName.isEmpty() && std::all_of(baseName.cbegin(), baseName.cend(), [](const QChar& ch) { return ch.isDigit(); });
+  if (isNumericId) {
+    const QString steamUrl =
+        QStringLiteral("https://steamcommunity.com/sharedfiles/filedetails/?id=") + baseName;
+    mod.source_url = steamUrl.toStdString();
+    mod.source_platform = QStringLiteral("steam").toStdString();
+  }
+  return mod;
 }
 
 } // namespace
@@ -75,6 +174,8 @@ RepositoryPresenter::RepositoryPresenter(RepositoryPage* page,
     connect(page_, &RepositoryPage::filterValueChanged, this, &RepositoryPresenter::handleFilterChanged);
     connect(page_, &RepositoryPage::filterValueTextChanged, this, &RepositoryPresenter::handleFilterValueTextChanged);
     connect(page_, &RepositoryPage::importRequested, this, &RepositoryPresenter::handleImportRequested);
+    // 绑定批量导入按钮的响应
+    connect(page_, &RepositoryPage::importFolderRequested, this, &RepositoryPresenter::handleImportFolderRequested);
     connect(page_, &RepositoryPage::editRequested, this, &RepositoryPresenter::handleEditRequested);
     connect(page_, &RepositoryPage::deleteRequested, this, &RepositoryPresenter::handleDeleteRequested);
     connect(page_, &RepositoryPage::refreshRequested, this, &RepositoryPresenter::handleRefreshRequested);
@@ -503,6 +604,84 @@ void RepositoryPresenter::handleImportRequested() {
   }
 }
 
+void RepositoryPresenter::handleImportFolderRequested() {
+  if (!repo_) {
+    return;
+  }
+
+  ImportFolderDialog dialog(resolveParent(dialogParent_, page_));
+  // 默认使用仓库目录作为初始路径
+  QString initialDir = repoDir_;
+  if (initialDir.isEmpty() && settings_) {
+    initialDir = QString::fromStdString(settings_->repoDir);
+  }
+  if (!initialDir.isEmpty()) {
+    dialog.setDirectory(initialDir);
+  }
+
+  if (dialog.exec() != QDialog::Accepted) {
+    return;
+  }
+
+  const QString targetDir = dialog.directory();
+  const bool recursive = dialog.includeSubdirectories();
+  QDirIterator::IteratorFlags flags = recursive ? QDirIterator::Subdirectories : QDirIterator::NoIteratorFlags;
+  QDirIterator iterator(targetDir, QStringList(), QDir::Files | QDir::Readable, flags);
+
+  QStringList filePaths;
+  while (iterator.hasNext()) {
+    const QString path = iterator.next();
+    const QFileInfo info(path);
+    if (isSupportedModFile(info)) {
+      filePaths.append(path);
+    }
+  }
+
+  if (filePaths.isEmpty()) {
+    QMessageBox::information(resolveParent(dialogParent_, page_), tr("未发现 MOD"),
+                             tr("所选文件夹中没有符合条件的 MOD 文件（vpk/zip/7z/rar）"));
+    return;
+  }
+
+  if (!importService_ || !settings_) {
+    QMessageBox::warning(resolveParent(dialogParent_, page_), tr("导入失败"), tr("导入服务未初始化，无法执行批量导入"));
+    return;
+  }
+
+  int successCount = 0;
+  QStringList failureMessages;
+
+  for (const QString& path : filePaths) {
+    const QFileInfo info(path);
+    ModRow mod = buildModFromFile(info);
+    QStringList transferErrors;
+    // 逐项执行文件搬运
+    if (!importService_->ensureModFilesInRepository(*settings_, mod, transferErrors)) {
+      const QString detail = transferErrors.join(QStringLiteral("；"));
+      failureMessages << tr("%1：%2").arg(info.fileName()).arg(detail.isEmpty() ? tr("文件转移失败") : detail);
+      continue;
+    }
+    try {
+      repo_->createModWithTags(mod, {});
+      ++successCount;
+    } catch (const std::exception& e) {
+      failureMessages << tr("%1：%2").arg(info.fileName()).arg(QString::fromUtf8(e.what()));
+    }
+  }
+
+  if (successCount > 0) {
+    loadData();
+  }
+
+  QString summary = tr("成功导入 %1 个 MOD").arg(successCount);
+  if (failureMessages.isEmpty()) {
+    QMessageBox::information(resolveParent(dialogParent_, page_), tr("批量导入完成"), summary);
+  } else {
+    summary.append(tr("\n失败 %1 个：\n%2").arg(failureMessages.size()).arg(failureMessages.join(QStringLiteral("\n"))));
+    QMessageBox::warning(resolveParent(dialogParent_, page_), tr("部分导入失败"), summary);
+  }
+}
+
 void RepositoryPresenter::handleEditRequested() {
   if (!repo_ || !modTable_) {
     return;
@@ -812,4 +991,3 @@ bool RepositoryPresenter::categoryMatchesFilter(int modCategoryId, int filterCat
   }
   return false;
 }
-

@@ -19,6 +19,7 @@ public:
   QCheckBox* showDeletedCheckBox() const { return showDeletedCheckBox_; }
   ModTableWidget* modTable() const { return modTable_; }
   QPushButton* importButton() const { return importBtn_; }
+  QPushButton* importFolderButton() const { return importFolderBtn_; }
   QPushButton* editButton() const { return editBtn_; }
   QPushButton* deleteButton() const { return deleteBtn_; }
   QPushButton* refreshButton() const { return refreshBtn_; }
@@ -31,6 +32,7 @@ signals:
   void filterValueChanged(const QString& text);
   void filterValueTextChanged(const QString& text);
   void importRequested();
+  void importFolderRequested();
   void editRequested();
   void deleteRequested();
   void refreshRequested();
@@ -44,7 +46,8 @@ private:
   ModFilterPanel* filterPanel_{};
   QCheckBox* showDeletedCheckBox_{};
   ModTableWidget* modTable_{};
-  QPushButton* importBtn_{};
+  QPushButton* importBtn_{};       // 单项导入按钮
+  QPushButton* importFolderBtn_{}; // 批量导入按钮
   QPushButton* editBtn_{};
   QPushButton* deleteBtn_{};
   QPushButton* refreshBtn_{};
@@ -52,4 +55,3 @@ private:
   QLabel* metaLabel_{};
   QTextEdit* noteView_{};
 };
-

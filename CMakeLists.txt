@@ -26,6 +26,8 @@ add_executable(L4D2ModAssistant
   app/ui/MainWindow.ui
   app/ui/ModEditorDialog.cpp
   app/ui/ModEditorDialog.h
+  app/ui/ImportFolderDialog.cpp
+  app/ui/ImportFolderDialog.h
   app/ui/components/NavigationBar.cpp
   app/ui/components/NavigationBar.h
   app/ui/components/ModFilterPanel.cpp
