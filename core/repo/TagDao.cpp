@@ -1,14 +1,25 @@
 #include "core/repo/TagDao.h"
 #include <utility>
 
+/**
+ * @file TagDao.cpp
+ * @brief 实现了 TagDao 类中定义的方法。
+ */
+
 namespace {
 
+/**
+ * @brief 计算下一个可用的标签组优先级。
+ */
 int nextGroupPriority(Db& db) {
   Stmt stmt(db, "SELECT COALESCE(MAX(priority), 0) FROM tag_groups;");
   stmt.step();
   return stmt.getInt(0) + 10;
 }
 
+/**
+ * @brief 计算指定组内下一个可用的标签优先级。
+ */
 int nextTagPriority(Db& db, int groupId) {
   Stmt stmt(db, "SELECT COALESCE(MAX(priority), 0) FROM tags WHERE group_id = ?;");
   stmt.bind(1, groupId);
@@ -36,14 +47,17 @@ void TagDao::updateGroup(int groupId, const std::string& name) {
 bool TagDao::removeGroup(int groupId) {
   Db::Tx tx(*db_);
 
+  // 检查该组下是否还有标签
   {
     Stmt count(*db_, "SELECT COUNT(*) FROM tags WHERE group_id = ?;");
     count.bind(1, groupId);
     if (count.step() && count.getInt(0) > 0) {
+      // 如果组不为空，则不允许删除
       return false;
     }
   }
 
+  // 删除空的标签组
   {
     Stmt stmt(*db_, "DELETE FROM tag_groups WHERE id = ?;");
     stmt.bind(1, groupId);
@@ -55,9 +69,11 @@ bool TagDao::removeGroup(int groupId) {
 }
 
 int TagDao::ensureGroupId(const std::string& name) {
+  // 尝试按名称查找现有的组
   Stmt query(*db_, "SELECT id FROM tag_groups WHERE name = ?;");
   query.bind(1, name);
   if (!query.step()) {
+    // 如果不存在，则创建一个新的组
     const int priority = nextGroupPriority(*db_);
     Stmt insert(*db_, "INSERT INTO tag_groups(name, priority) VALUES(?, ?);");
     insert.bind(1, name);
@@ -65,6 +81,7 @@ int TagDao::ensureGroupId(const std::string& name) {
     insert.step();
     return static_cast<int>(sqlite3_last_insert_rowid(db_->raw()));
   }
+  // 如果存在，则返回其ID
   return query.getInt(0);
 }
 
@@ -99,10 +116,12 @@ void TagDao::updateTag(int tagId, const std::string& name) {
 }
 
 int TagDao::ensureTagId(int groupId, const std::string& name) {
+  // 尝试按组ID和名称查找现有的标签
   Stmt query(*db_, "SELECT id FROM tags WHERE group_id = ? AND name = ?;");
   query.bind(1, groupId);
   query.bind(2, name);
   if (!query.step()) {
+    // 如果不存在，则创建一个新的标签
     const int priority = nextTagPriority(*db_, groupId);
     Stmt insert(*db_, "INSERT INTO tags(group_id, name, priority) VALUES(?, ?, ?);");
     insert.bind(1, groupId);
@@ -111,6 +130,7 @@ int TagDao::ensureTagId(int groupId, const std::string& name) {
     insert.step();
     return static_cast<int>(sqlite3_last_insert_rowid(db_->raw()));
   }
+  // 如果存在，则返回其ID
   return query.getInt(0);
 }
 
@@ -130,14 +150,9 @@ std::vector<TagRow> TagDao::listByGroup(int groupId) const {
 }
 
 std::vector<TagWithGroupRow> TagDao::listAllWithGroup() const {
+  // 联接 tags 和 tag_groups 表，查询所有标签及其组信息
   Stmt stmt(*db_, R"SQL(
-    SELECT
-      t.id,
-      t.group_id,
-      g.name,
-      t.name,
-      g.priority,
-      t.priority
+    SELECT t.id, t.group_id, g.name, t.name, g.priority, t.priority
     FROM tags t
     INNER JOIN tag_groups g ON g.id = t.group_id
     ORDER BY g.priority, g.id, t.priority, t.id;
@@ -157,14 +172,9 @@ std::vector<TagWithGroupRow> TagDao::listAllWithGroup() const {
 }
 
 std::vector<TagWithGroupRow> TagDao::listByMod(int modId) const {
+  // 通过 mod_tags 联接表，查询指定MOD的所有标签及其组信息
   Stmt stmt(*db_, R"SQL(
-    SELECT
-      t.id,
-      t.group_id,
-      g.name,
-      t.name,
-      g.priority,
-      t.priority
+    SELECT t.id, t.group_id, g.name, t.name, g.priority, t.priority
     FROM mod_tags mt
     INNER JOIN tags t ON t.id = mt.tag_id
     INNER JOIN tag_groups g ON g.id = t.group_id
@@ -187,8 +197,10 @@ std::vector<TagWithGroupRow> TagDao::listByMod(int modId) const {
 }
 
 void TagDao::deleteUnused(int tagId) {
+  // 检查标签是否被使用
   Stmt check(*db_, "SELECT COUNT(*) FROM mod_tags WHERE tag_id = ?;");
   check.bind(1, tagId);
+  // 如果未被使用，则删除
   if (check.step() && check.getInt(0) == 0) {
     Stmt del(*db_, "DELETE FROM tags WHERE id = ?;");
     del.bind(1, tagId);
@@ -199,14 +211,17 @@ void TagDao::deleteUnused(int tagId) {
 bool TagDao::removeTag(int tagId) {
   Db::Tx tx(*db_);
 
+  // 检查标签是否仍被任何MOD使用
   {
     Stmt check(*db_, "SELECT COUNT(*) FROM mod_tags WHERE tag_id = ?;");
     check.bind(1, tagId);
     if (check.step() && check.getInt(0) > 0) {
+      // 如果仍在使用，则不允许删除
       return false;
     }
   }
 
+  // 删除未被使用的标签
   {
     Stmt stmt(*db_, "DELETE FROM tags WHERE id = ?;");
     stmt.bind(1, tagId);
@@ -218,12 +233,14 @@ bool TagDao::removeTag(int tagId) {
 }
 
 void TagDao::clearTagsForMod(int modId) {
+  // 清除指定MOD的所有标签关联
   Stmt stmt(*db_, "DELETE FROM mod_tags WHERE mod_id = ?;");
   stmt.bind(1, modId);
   stmt.step();
 }
 
 void TagDao::addTagToMod(int modId, int tagId) {
+  // 使用 "INSERT OR IGNORE" 避免插入重复的MOD-标签关联
   Stmt stmt(*db_, "INSERT OR IGNORE INTO mod_tags(mod_id, tag_id) VALUES(?, ?);");
   stmt.bind(1, modId);
   stmt.bind(2, tagId);

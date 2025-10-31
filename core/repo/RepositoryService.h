@@ -15,37 +15,88 @@
 
 /**
  * @file RepositoryService.h
- * @brief Aggregates repository DAOs into business-oriented operations.
+ * @brief 将所有DAO聚合为面向业务场景的高级操作。
+ * @details 这是数据仓库层的核心服务，为上层业务逻辑（如UI的Presenter）提供统一的数据访问接口。
+ *          它封装了所有与数据库表直接交互的DAO对象，并组合它们以完成复杂的业务事务。
  */
 
-/// Lightweight descriptor used by the UI layer when editing tags.
+/**
+ * @brief 用于UI层编辑标签的轻量级描述符。
+ */
 struct TagDescriptor {
-  std::string group;
-  std::string tag;
+  std::string group; ///< 标签所属的组名
+  std::string tag;   ///< 标签名
 };
 
+/**
+ * @brief 仓库服务类，封装所有数据访问和业务逻辑。
+ */
 class RepositoryService {
 public:
+  /**
+   * @brief 构造一个新的 RepositoryService 对象。
+   * @param db 数据库连接的共享指针。
+   */
   explicit RepositoryService(std::shared_ptr<Db> db);
 
-  /// Query visible (not deleted) mods.
+  // --- MOD 管理 ---
+
+  /**
+   * @brief 查询所有可见（未被逻辑删除）的MOD。
+   * @return 可见MOD的列表。
+   */
   std::vector<ModRow> listVisible() const;
-  /// Query all mods, optionally including logically deleted ones.
+  
+  /**
+   * @brief 查询所有MOD。
+   * @param includeDeleted 是否包含已被逻辑删除的MOD。
+   * @return MOD列表。
+   */
   std::vector<ModRow> listAll(bool includeDeleted = false) const;
-  /// Lookup a mod by id.
+  
+  /**
+   * @brief 根据ID查找MOD。
+   * @param modId MOD ID。
+   * @return 如果找到则返回MOD信息，否则返回 std::nullopt。
+   */
   std::optional<ModRow> findMod(int modId) const;
-  /// Create mod and bind tags atomically.
+  
+  /**
+   * @brief 以原子方式创建一个新的MOD并绑定其标签。
+   * @param mod 要创建的MOD的数据。
+   * @param tags 要绑定的标签列表。
+   * @return 新创建的MOD的ID。
+   */
   int createModWithTags(const ModRow& mod, const std::vector<TagDescriptor>& tags);
-  /// Update mod fields and refresh tag bindings.
+  
+  /**
+   * @brief 更新MOD信息并刷新其标签绑定。
+   * @param mod 要更新的MOD的数据（必须包含有效ID）。
+   * @param tags 新的标签列表，将完全替换旧的标签。
+   */
   void updateModWithTags(const ModRow& mod, const std::vector<TagDescriptor>& tags);
-  /// Replace only the tag bindings (mod data unchanged).
+  
+  /**
+   * @brief 仅更新MOD的标签绑定，不修改MOD自身数据。
+   * @param modId MOD ID。
+   * @param tags 新的标签列表。
+   */
   void updateModTags(int modId, const std::vector<TagDescriptor>& tags);
-  /// Toggle logical deletion flag.
+  
+  /**
+   * @brief 设置MOD的逻辑删除状态。
+   * @param modId MOD ID。
+   * @param deleted true表示逻辑删除，false表示恢复。
+   */
   void setModDeleted(int modId, bool deleted);
-  /// Permanently delete all logically deleted mods.
+  
+  /**
+   * @brief 永久删除所有已被逻辑删除的MOD。
+   */
   void clearDeletedMods();
 
-  /// Category management.
+  // --- 分类管理 ---
+
   std::vector<CategoryRow> listCategories() const;
   int createCategory(const std::string& name, std::optional<int> parentId);
   void updateCategory(int id, const std::string& name, std::optional<int> parentId,
@@ -53,7 +104,8 @@ public:
   void deleteCategory(int id);
   void swapCategoryPriority(int firstId, int secondId);
 
-  /// Tag queries.
+  // --- 标签管理 ---
+
   std::vector<TagGroupRow> listTagGroups() const;
   int createTagGroup(const std::string& name);
   void renameTagGroup(int groupId, const std::string& name);
@@ -65,31 +117,31 @@ public:
   bool deleteTag(int tagId);
   std::vector<TagWithGroupRow> listTagsForMod(int modId) const;
 
-  /// Relation maintenance.
+  // --- MOD关系管理 ---
+
   std::vector<ModRelationRow> listRelationsForMod(int modId) const;
   int addRelation(const ModRelationRow& relation);
   void removeRelation(int relationId);
   void removeRelation(int aModId, int bModId, const std::string& type);
-  /// 批量替换指定 MOD 的关系记录，内部以事务方式先删后写。
   void replaceRelationsForMod(int modId, const std::vector<ModRelationRow>& relations);
 
-  /// 读取缓存的游戏目录 MOD 列表。
+  // --- 游戏目录缓存管理 ---
+
   std::vector<GameModRow> listGameMods() const;
-  /// 按来源目录替换缓存内容。
   void replaceGameModsForSource(const std::string& source, const std::vector<GameModRow>& rows);
-  /// 更新或写入单条游戏目录缓存记录。
   void upsertGameMod(const GameModRow& row);
-  /// 删除指定来源下已不存在的缓存项。
   void removeGameModsExcept(const std::string& source, const std::vector<std::string>& keepPaths);
 
-  /// Fixed bundle management.
+  // --- 固定搭配管理 ---
+
   std::vector<FixedBundleRow> listFixedBundles() const;
   std::vector<FixedBundleItemRow> listFixedBundleItems(int bundleId) const;
   int createFixedBundle(const std::string& name, const std::vector<int>& modIds, const std::optional<std::string>& note);
   void updateFixedBundle(int bundleId, const std::string& name, const std::vector<int>& modIds, const std::optional<std::string>& note);
   void deleteFixedBundle(int bundleId);
 
-  /// Saved scheme management.
+  // --- 已存方案管理 ---
+
   std::vector<SavedSchemeRow> listSavedSchemes() const;
   std::vector<SavedSchemeItemRow> listSavedSchemeItems(int schemeId) const;
   int createSavedScheme(const std::string& name, double budgetMb, const std::vector<SavedSchemeItemRow>& items);
@@ -97,7 +149,10 @@ public:
   void deleteSavedScheme(int schemeId);
 
 private:
-  std::shared_ptr<Db> db_;
+  std::shared_ptr<Db> db_; ///< 共享的数据库连接实例
+  
+  // --- Data Access Objects ---
+  // 服务通过持有的DAO对象来执行具体的数据库操作
   std::unique_ptr<RepositoryDao> repoDao_;
   std::unique_ptr<CategoryDao> categoryDao_;
   std::unique_ptr<TagDao> tagDao_;
