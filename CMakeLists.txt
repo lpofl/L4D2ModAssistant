@@ -48,6 +48,8 @@ add_executable(L4D2ModAssistant
   app/services/ApplicationInitializer.h
   app/services/ImportService.cpp
   app/services/ImportService.h
+  app/services/GameDirectoryMonitor.cpp
+  app/services/GameDirectoryMonitor.h
   app/ui/selector/RandomizeController.cpp
   app/ui/selector/RandomizeController.h
   core/db/Db.cpp
@@ -60,6 +62,8 @@ add_executable(L4D2ModAssistant
   core/repo/TagDao.h
   core/repo/ModRelationDao.cpp
   core/repo/ModRelationDao.h
+  core/repo/GameModDao.cpp
+  core/repo/GameModDao.h
   core/repo/SavedSchemeDao.cpp
   core/repo/SavedSchemeDao.h
   core/repo/FixedBundleDao.cpp
@@ -104,6 +108,8 @@ add_executable(L4D2ModAssistantTests
   core/repo/TagDao.h
   core/repo/ModRelationDao.cpp
   core/repo/ModRelationDao.h
+  core/repo/GameModDao.cpp
+  core/repo/GameModDao.h
   core/repo/SavedSchemeDao.cpp
   core/repo/SavedSchemeDao.h
   core/repo/FixedBundleDao.cpp

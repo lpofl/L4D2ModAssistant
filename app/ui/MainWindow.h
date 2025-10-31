@@ -10,6 +10,7 @@
 #include "core/config/Settings.h"
 #include "core/repo/RepositoryService.h"
 // 界面瘦身：引入应用服务/控制器头文件
+#include "app/services/GameDirectoryMonitor.h"
 #include "app/services/ImportService.h"
 #include "app/ui/selector/RandomizeController.h"
 
@@ -85,6 +86,7 @@ private slots:
   void onRenameTag();
   void onDeleteTag();
   void onTagSelectionChanged(int row);
+  void onGameModsUpdated();
 
 private:
   void setupUi();
@@ -119,6 +121,7 @@ private:
   // UI 层应用服务与控制器（减少 MainWindow 职责）
   std::unique_ptr<ImportService> importService_;
   std::unique_ptr<RandomizeController> randomizeController_;
+  std::unique_ptr<GameDirectoryMonitor> gameDirectoryMonitor_;
 
   // Navigation
   NavigationBar* navigationBar_{};

@@ -59,7 +59,8 @@ RepositoryService::RepositoryService(std::shared_ptr<Db> db)
       tagDao_(std::make_unique<TagDao>(db_)),
       relationDao_(std::make_unique<ModRelationDao>(db_)),
       savedSchemeDao_(std::make_unique<SavedSchemeDao>(db_)),
-      fixedBundleDao_(std::make_unique<FixedBundleDao>(db_)) {}
+      fixedBundleDao_(std::make_unique<FixedBundleDao>(db_)),
+      gameModDao_(std::make_unique<GameModDao>(db_)) {}
 
 std::vector<ModRow> RepositoryService::listVisible() const {
   return repoDao_->listAll(false);
@@ -210,6 +211,22 @@ void RepositoryService::replaceRelationsForMod(int modId, const std::vector<ModR
     addRelation(rel);
   }
   tx.commit();
+}
+
+std::vector<GameModRow> RepositoryService::listGameMods() const {
+  return gameModDao_->listAll();
+}
+
+void RepositoryService::replaceGameModsForSource(const std::string& source, const std::vector<GameModRow>& rows) {
+  gameModDao_->replaceForSource(source, rows);
+}
+
+void RepositoryService::upsertGameMod(const GameModRow& row) {
+  gameModDao_->upsert(row);
+}
+
+void RepositoryService::removeGameModsExcept(const std::string& source, const std::vector<std::string>& keepPaths) {
+  gameModDao_->removeByPaths(source, keepPaths);
 }
 
 std::vector<FixedBundleRow> RepositoryService::listFixedBundles() const {

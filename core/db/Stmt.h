@@ -22,6 +22,8 @@ public:
   }
 
   void bind(int idx, int v) { sqlite3_bind_int(stmt_, idx, v); }
+  /// 绑定 64 位整型参数，适用于文件大小等大数值。
+  void bind(int idx, sqlite3_int64 v) { sqlite3_bind_int64(stmt_, idx, v); }
   void bind(int idx, double v) { sqlite3_bind_double(stmt_, idx, v); }
   void bind(int idx, const std::string& v) { sqlite3_bind_text(stmt_, idx, v.c_str(), -1, SQLITE_TRANSIENT); }
   void bindNull(int idx) { sqlite3_bind_null(stmt_, idx); }
@@ -34,6 +36,8 @@ public:
   }
 
   int getInt(int col) const { return sqlite3_column_int(stmt_, col); }
+  /// 读取 64 位整型列数据。
+  sqlite3_int64 getInt64(int col) const { return sqlite3_column_int64(stmt_, col); }
   double getDouble(int col) const { return sqlite3_column_double(stmt_, col); }
   std::string getText(int col) const {
     auto* p = reinterpret_cast<const char*>(sqlite3_column_text(stmt_, col));

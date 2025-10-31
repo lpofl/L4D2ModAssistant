@@ -7,6 +7,7 @@
 
 #include "core/repo/CategoryDao.h"
 #include "core/repo/FixedBundleDao.h"
+#include "core/repo/GameModDao.h"
 #include "core/repo/ModRelationDao.h"
 #include "core/repo/RepositoryDao.h"
 #include "core/repo/SavedSchemeDao.h"
@@ -72,6 +73,15 @@ public:
   /// 批量替换指定 MOD 的关系记录，内部以事务方式先删后写。
   void replaceRelationsForMod(int modId, const std::vector<ModRelationRow>& relations);
 
+  /// 读取缓存的游戏目录 MOD 列表。
+  std::vector<GameModRow> listGameMods() const;
+  /// 按来源目录替换缓存内容。
+  void replaceGameModsForSource(const std::string& source, const std::vector<GameModRow>& rows);
+  /// 更新或写入单条游戏目录缓存记录。
+  void upsertGameMod(const GameModRow& row);
+  /// 删除指定来源下已不存在的缓存项。
+  void removeGameModsExcept(const std::string& source, const std::vector<std::string>& keepPaths);
+
   /// Fixed bundle management.
   std::vector<FixedBundleRow> listFixedBundles() const;
   std::vector<FixedBundleItemRow> listFixedBundleItems(int bundleId) const;
@@ -94,4 +104,5 @@ private:
   std::unique_ptr<ModRelationDao> relationDao_;
   std::unique_ptr<SavedSchemeDao> savedSchemeDao_;
   std::unique_ptr<FixedBundleDao> fixedBundleDao_;
+  std::unique_ptr<GameModDao> gameModDao_;
 };

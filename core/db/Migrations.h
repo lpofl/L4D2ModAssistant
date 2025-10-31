@@ -460,6 +460,28 @@ inline void applyMigration1(Db& db) {
   tx.commit();
 }
 
+inline void applyMigration2(Db& db) {
+  Db::Tx tx(db);
+  db.exec(R"SQL(
+    CREATE TABLE IF NOT EXISTS gamemods (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      file_path TEXT NOT NULL UNIQUE,
+      source TEXT NOT NULL CHECK(source IN ('addons','workshop')),
+      file_size INTEGER NOT NULL DEFAULT 0,
+      modified_at TEXT,
+      status TEXT NOT NULL DEFAULT '',
+      repo_mod_id INTEGER,
+      last_scanned_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY(repo_mod_id) REFERENCES mods(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_gamemods_source ON gamemods(source);
+    CREATE INDEX IF NOT EXISTS idx_gamemods_repo ON gamemods(repo_mod_id);
+  )SQL");
+  updateSchemaVersion(db, 2);
+  tx.commit();
+}
+
 } // namespace migrations
 
 /**
@@ -471,5 +493,9 @@ inline void runMigrations(Db& db) {
   auto current = migrations::currentSchemaVersion(db);
   if (current < 1) {
     migrations::applyMigration1(db);
+    current = migrations::currentSchemaVersion(db);
+  }
+  if (current < 2) {
+    migrations::applyMigration2(db);
   }
 }

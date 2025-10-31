@@ -11,6 +11,7 @@ class ModFilterPanel;
 class ModTableWidget;
 class RepositoryPresenter;
 class SelectorPage;
+class RepositoryService;
 
 /**
  * @brief 选择器页业务协调器，负责过滤条件与仓库数据的衔接。
@@ -22,8 +23,10 @@ public:
 
   void initializeFilters();
   void setRepositoryPresenter(RepositoryPresenter* presenter);
+  void setRepositoryService(RepositoryService* service);
   void refreshRepositoryData();
   void applyFilter();
+  void refreshGameDirectory();
 
 private slots:
   void handleFilterAttributeChanged(const QString& attribute);
@@ -38,6 +41,7 @@ private:
 
   SelectorPage* page_{};
   RepositoryPresenter* repositoryPresenter_{};
+  RepositoryService* repoService_{};
   ModFilterPanel* filterPanel_{};
   QComboBox* filterAttribute_{};
   QComboBox* filterValue_{};
