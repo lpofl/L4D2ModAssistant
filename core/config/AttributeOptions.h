@@ -10,10 +10,13 @@
 
 namespace config {
 
+/**
+ * @brief 定义各种 MOD 属性的选项列表。
+ */
 struct ModAttributeOptions {
-  std::vector<std::string> integrity;
-  std::vector<std::string> stability;
-  std::vector<std::string> acquisition;
+  std::vector<std::string> integrity;   ///< 完整性属性的选项。
+  std::vector<std::string> stability;   ///< 稳定性属性的选项。
+  std::vector<std::string> acquisition; ///< 获取方式属性的选项。
 };
 
 /**

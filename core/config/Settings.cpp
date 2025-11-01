@@ -28,7 +28,11 @@ std::filesystem::path Settings::defaultSettingsPath() {
 
 namespace {
 
-// Helper for ImportAction enum
+/**
+ * @brief 将 ImportAction 枚举转换为其字符串表示。
+ * @param action 枚举值。
+ * @return 字符串表示。
+ */
 std::string importActionToString(ImportAction action) {
   switch (action) {
     case ImportAction::Cut: return "Cut";
@@ -38,13 +42,22 @@ std::string importActionToString(ImportAction action) {
   return "Cut"; // Default
 }
 
+/**
+ * @brief 将字符串转换为 ImportAction 枚举。
+ * @param str 字符串值。
+ * @return 枚举值。
+ */
 ImportAction stringToImportAction(const std::string& str) {
   if (str == "Copy") return ImportAction::Copy;
   if (str == "Link") return ImportAction::Link;
   return ImportAction::Cut; // Default
 }
 
-// Helper for AddonsAutoImportMethod enum
+/**
+ * @brief 将 AddonsAutoImportMethod 枚举转换为其字符串表示。
+ * @param method 枚举值。
+ * @return 字符串表示。
+ */
 std::string addonsAutoImportMethodToString(AddonsAutoImportMethod method) {
   switch (method) {
     case AddonsAutoImportMethod::Cut: return "Cut";
@@ -54,22 +67,30 @@ std::string addonsAutoImportMethodToString(AddonsAutoImportMethod method) {
   return "Copy"; // Default
 }
 
+/**
+ * @brief 将字符串转换为 AddonsAutoImportMethod 枚举。
+ * @param str 字符串值。
+ * @return 枚举值。
+ */
 AddonsAutoImportMethod stringToAddonsAutoImportMethod(const std::string& str) {
   if (str == "Cut") return AddonsAutoImportMethod::Cut;
   if (str == "Link") return AddonsAutoImportMethod::Link;
   return AddonsAutoImportMethod::Copy; // Default
 }
 
-// 新增工具函数：根据游戏目录推导 addons 与 workshop 路径（使用 std::filesystem）
-// 说明：
-// - 若传入路径本身以 "addons" 结尾，则视为 addons 目录；
-// - 若传入路径以 "left4dead2" 结尾，则 addons = <path>/addons；
-// - 否则视为游戏根目录，addons = <path>/left4dead2/addons；
-// - workshop 固定位于 addons/workshop 下。
+/**
+ * @brief 根据给定的游戏相关根路径推导 addons 路径。
+ * @param root 可以是游戏根目录、'left4dead2' 目录或 'addons' 目录的路径。
+ * @return 推导出的 addons 路径。
+ * @details
+ * - 如果路径以 "addons" 结尾，则直接返回。
+ * - 如果路径以 "left4dead2" 结尾，则附加 "/addons"。
+ * - 否则，将其视为游戏根目录，并附加 "/left4dead2/addons"。
+ */
 static std::string deriveAddonsPathFs(const std::string& root) {
   if (root.empty()) return {};
   std::filesystem::path p = std::filesystem::weakly_canonical(std::filesystem::path(root));
-  // 上述 canonical 可能失败，忽略异常，保底使用原始路径
+  // 上述 canonical 调用可能失败；忽略异常并回退到原始路径。
   std::error_code ec;
   auto filename = p.filename().generic_string();
   for (auto& c : filename) c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
@@ -83,6 +104,11 @@ static std::string deriveAddonsPathFs(const std::string& root) {
   return (p / "left4dead2" / "addons").string();
 }
 
+/**
+ * @brief 根据给定的 addons 路径推导 workshop 路径。
+ * @param addonsPath addons 目录的路径。
+ * @return 推导出的 workshop 路径 (addons/workshop)。
+ */
 static std::string deriveWorkshopPathFs(const std::string& addonsPath) {
   if (addonsPath.empty()) return {};
   std::filesystem::path p(addonsPath);

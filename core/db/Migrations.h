@@ -11,7 +11,7 @@
 
 /**
  * @file Migrations.h
- * @brief Database schema migrations and seed-data initialization (idempotent).
+ * @brief 数据库结构迁移和种子数据初始化（幂等操作）。
  */
 
 namespace migrations {
@@ -20,6 +20,11 @@ using json = nlohmann::json;
 
 namespace detail {
 
+/**
+ * @brief 定位种子数据文件。
+ * @param filename 文件名。
+ * @return 如果找到，返回文件路径。
+ */
 inline std::optional<std::filesystem::path> locateSeedFile(const std::string& filename) {
   std::vector<std::filesystem::path> candidates;
   auto cursor = std::filesystem::current_path();
@@ -37,6 +42,13 @@ inline std::optional<std::filesystem::path> locateSeedFile(const std::string& fi
   return std::nullopt;
 }
 
+/**
+ * @brief 将种子文件加载为 JSON 对象。
+ * @param filename 文件名。
+ * @param[out] resolvedPath 如果非空，则写入解析出的文件路径。
+ * @return 如果加载成功，返回 JSON 对象。
+ * @throws DbError 如果文件无法打开或解析。
+ */
 inline std::optional<json> loadSeedJson(const std::string& filename, std::filesystem::path* resolvedPath = nullptr) {
   auto resolved = locateSeedFile(filename);
   if (!resolved) {
@@ -60,6 +72,14 @@ inline std::optional<json> loadSeedJson(const std::string& filename, std::filesy
   }
 }
 
+/**
+ * @brief 确保一个分类存在（如果不存在则创建），并返回其 ID。
+ * @param db 数据库连接。
+ * @param name 分类名称。
+ * @param parentId 父分类 ID。
+ * @param priority 优先级。如果<=0，则自动计算。
+ * @return 分类 ID。
+ */
 inline int ensureCategory(Db& db,
                           const std::string& name,
                           std::optional<int> parentId,
@@ -104,6 +124,12 @@ inline int ensureCategory(Db& db,
   throw DbError("failed to resolve category id for " + name);
 }
 
+/**
+ * @brief 从 JSON 节点中提取 "priority" 字段。
+ * @param node JSON 节点。
+ * @param fallback 如果字段不存在或类型不正确，返回的回退值。
+ * @return 优先级。
+ */
 inline int extractPriority(const json& node, int fallback) {
   auto it = node.find("priority");
   if (it != node.end() && it->is_number_integer()) {
@@ -112,6 +138,12 @@ inline int extractPriority(const json& node, int fallback) {
   return fallback;
 }
 
+/**
+ * @brief 递归地从 JSON 节点播种类目数据。
+ * @param db 数据库连接。
+ * @param node 包含类目数据的 JSON 节点。
+ * @param parentId 父类目 ID。
+ */
 inline void seedCategoryNode(Db& db, const json& node, std::optional<int> parentId) {
   if (!node.is_object()) {
     throw DbError("category entry must be an object");
@@ -135,6 +167,11 @@ inline void seedCategoryNode(Db& db, const json& node, std::optional<int> parent
   }
 }
 
+/**
+ * @brief 从配置文件播种类目数据。
+ * @param db 数据库连接。
+ * @return 如果从文件成功播种，返回 true。
+ */
 inline bool seedCategoriesFromConfig(Db& db) {
   std::filesystem::path sourcePath;
   auto data = loadSeedJson("init_categories.json", &sourcePath);
@@ -154,6 +191,13 @@ inline bool seedCategoriesFromConfig(Db& db) {
   return true;
 }
 
+/**
+ * @brief 确保一个标签组存在（如果不存在则创建），并返回其 ID。
+ * @param db 数据库连接。
+ * @param name 标签组名称。
+ * @param priority 优先级。如果<=0，则自动计算。
+ * @return 标签组 ID。
+ */
 inline int ensureTagGroup(Db& db,
                           const std::string& name,
                           int priority) {
@@ -182,6 +226,13 @@ inline int ensureTagGroup(Db& db,
   throw DbError("failed to resolve tag_group id for " + name);
 }
 
+/**
+ * @brief 确保一个标签存在于组中（如果不存在则创建）。
+ * @param db 数据库连接。
+ * @param groupId 标签组 ID。
+ * @param tagName 标签名称。
+ * @param priority 优先级。如果<=0，则自动计算。
+ */
 inline void ensureTag(Db& db,
                       int groupId,
                       const std::string& tagName,
@@ -206,6 +257,11 @@ inline void ensureTag(Db& db,
   upsert.step();
 }
 
+/**
+ * @brief 从 JSON 节点中提取标签的 "priority" 字段。
+ * @param node JSON 节点。
+ * @return 优先级。
+ */
 inline int extractTagPriority(const json& node) {
   auto sortIt = node.find("priority");
   if (sortIt != node.end() && sortIt->is_number_integer()) {
@@ -214,6 +270,11 @@ inline int extractTagPriority(const json& node) {
   return 0;
 }
 
+/**
+ * @brief 从配置文件播种标签和标签组数据。
+ * @param db 数据库连接。
+ * @return 如果从文件成功播种，返回 true。
+ */
 inline bool seedTagsFromConfig(Db& db) {
   std::filesystem::path sourcePath;
   auto data = loadSeedJson("init_tags.json", &sourcePath);
@@ -264,6 +325,10 @@ inline bool seedTagsFromConfig(Db& db) {
 
 } // namespace detail
 
+/**
+ * @brief 确保元数据表存在，并包含 schema_version 键。
+ * @param db 数据库连接。
+ */
 inline void ensureMetaTable(Db& db) {
   db.exec(R"SQL(
     CREATE TABLE IF NOT EXISTS app_meta (
@@ -274,6 +339,11 @@ inline void ensureMetaTable(Db& db) {
   )SQL");
 }
 
+/**
+ * @brief 获取当前的数据库结构版本。
+ * @param db 数据库连接。
+ * @return 当前版本号。
+ */
 inline int currentSchemaVersion(Db& db) {
   Stmt stmt(db, "SELECT value FROM app_meta WHERE key = 'schema_version';");
   if (stmt.step()) {
@@ -287,12 +357,21 @@ inline int currentSchemaVersion(Db& db) {
   return 0;
 }
 
+/**
+ * @brief 更新数据库结构版本号。
+ * @param db 数据库连接。
+ * @param version 新的版本号。
+ */
 inline void updateSchemaVersion(Db& db, int version) {
   Stmt stmt(db, "UPDATE app_meta SET value = ? WHERE key = 'schema_version';");
   stmt.bind(1, std::to_string(version));
   stmt.step();
 }
 
+/**
+ * @brief 应用版本 1 的数据库迁移。
+ * @param db 数据库连接。
+ */
 inline void applyMigration1(Db& db) {
   Db::Tx tx(db);
   db.exec(R"SQL(
@@ -460,6 +539,10 @@ inline void applyMigration1(Db& db) {
   tx.commit();
 }
 
+/**
+ * @brief 应用版本 2 的数据库迁移。
+ * @param db 数据库连接。
+ */
 inline void applyMigration2(Db& db) {
   Db::Tx tx(db);
   db.exec(R"SQL(
@@ -485,8 +568,8 @@ inline void applyMigration2(Db& db) {
 } // namespace migrations
 
 /**
- * @brief Run built-in migrations to create or upgrade schema objects.
- * @param db Open database connection.
+ * @brief 运行内置迁移以创建或升级数据库结构。
+ * @param db 打开的数据库连接。
  */
 inline void runMigrations(Db& db) {
   migrations::ensureMetaTable(db);

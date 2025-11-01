@@ -1,3 +1,8 @@
+/**
+ * @file AttributeOptions.cpp
+ * @brief 实现从 JSON 配置文件加载 MOD 属性选项。
+ */
+
 #include "core/config/AttributeOptions.h"
 
 #include <filesystem>
@@ -10,6 +15,12 @@ namespace {
 
 using json = nlohmann::json;
 
+/**
+ * @brief 通过从当前目录向上搜索来定位配置文件。
+ * @param filename 要查找的文件名。
+ * @return 如果找到文件，则返回完整路径；否则返回 std::nullopt。
+ * @note 在 `setting_config/` 子目录和目录本身中搜索，最多向上搜索 3 层。
+ */
 std::optional<std::filesystem::path> locateConfigFile(const std::string& filename) {
   auto cursor = std::filesystem::current_path();
   for (int depth = 0; depth < 3 && !cursor.empty(); ++depth) {
@@ -26,6 +37,11 @@ std::optional<std::filesystem::path> locateConfigFile(const std::string& filenam
   return std::nullopt;
 }
 
+/**
+ * @brief 从 JSON 数组填充字符串向量。
+ * @param node JSON 节点，预期为字符串数组。
+ * @param[out] target 用于填充 JSON 数组值的向量。
+ */
 void populateFromArray(const json& node, std::vector<std::string>& target) {
   if (!node.is_array()) {
     return;

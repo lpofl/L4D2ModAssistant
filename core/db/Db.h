@@ -27,10 +27,17 @@ public:
    * @param path 数据库文件路径。
    */
   explicit Db(const std::string& path) { open(path); initPragmas(); }
+  /**
+   * @brief 析构函数，关闭数据库连接。
+   */
   ~Db() { if (db_) sqlite3_close(db_); }
 
-  Db(const Db&) = delete; Db& operator=(const Db&) = delete;//禁止拷贝构造和赋值
-  Db(Db&& o) noexcept : db_(o.db_) { o.db_ = nullptr; }//移动构造函数
+  /** @brief 禁用拷贝构造。 */
+  Db(const Db&) = delete;
+  /** @brief 禁用拷贝赋值。 */
+  Db& operator=(const Db&) = delete;
+  /** @brief 移动构造函数。 */
+  Db(Db&& o) noexcept : db_(o.db_) { o.db_ = nullptr; }
 
   /** @brief 获取底层 sqlite3*。 */
   sqlite3* raw() const { return db_; }
