@@ -23,6 +23,7 @@
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QStackedWidget>
+#include <QTimer>
 #include <QTextEdit>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -139,6 +140,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   refreshCategoryManagementUi();
   refreshTagManagementUi();
   refreshDeletionSettingsUi();
+
+  QTimer::singleShot(0, this, [this]() {
+    scheduleGameDirectoryScan(true);
+  });
 }
 
 void MainWindow::setupUi() {
@@ -557,6 +562,16 @@ void MainWindow::reinitializeRepository(const Settings& settings) {
 
   if (selectorPresenter_) {
     selectorPresenter_->setRepositoryPresenter(repositoryPresenter_.get());
+    selectorPresenter_->setRepositoryService(repo_.get());
+  }
+
+  if (!gameDirectoryMonitor_) {
+    gameDirectoryMonitor_ = std::make_unique<GameDirectoryMonitor>();
+    connect(gameDirectoryMonitor_.get(), &GameDirectoryMonitor::gameModsUpdated,
+            this, &MainWindow::onGameModsUpdated);
+  }
+
+  if (selectorPresenter_) {
     selectorPresenter_->refreshRepositoryData();
   }
 }
@@ -678,9 +693,47 @@ void MainWindow::switchToSelector() {
   applySelectorFilter();
 }
 
+void MainWindow::scheduleGameDirectoryScan(bool showOverlay) {
+  if (!gameDirectoryMonitor_) {
+    return;
+  }
+  if (showOverlay) {
+    if (!isGameModsLoading_) {
+      isGameModsLoading_ = true;
+      if (selectorPage_) {
+        selectorPage_->showLoadingOverlay(tr("正在扫描游戏目录..."));
+      }
+    } else if (selectorPage_) {
+      selectorPage_->showLoadingOverlay(tr("正在扫描游戏目录..."));
+    }
+  }
+  QTimer::singleShot(0, this, [this]() {
+    if (!gameDirectoryMonitor_) {
+      return;
+    }
+    gameDirectoryMonitor_->configure(settings_, repo_.get(), importService_.get());
+  });
+}
+
 void MainWindow::reloadRepoSelectorData() {
   if (selectorPresenter_) {
     selectorPresenter_->refreshRepositoryData();
+  }
+}
+
+void MainWindow::onGameModsUpdated(const QStringList& updatedMods, bool /*initialScan*/) {
+  if (selectorPage_) {
+    selectorPage_->hideLoadingOverlay();
+  }
+  isGameModsLoading_ = false;
+
+  if (selectorPresenter_) {
+    selectorPresenter_->refreshGameDirectory();
+  }
+
+  if (!updatedMods.isEmpty()) {
+    const QString message = tr("以下 MOD 已同步更新：\n%1").arg(updatedMods.join(QStringLiteral("\n")));
+    QMessageBox::information(this, tr("MOD 更新"), message);
   }
 }
 
@@ -827,11 +880,13 @@ void MainWindow::onSaveSettings() {
 
     if (repoChanged) {
       reinitializeRepository(settings_);
+      scheduleGameDirectoryScan(true);
     } else {
       if (repositoryPresenter_) {
         repositoryPresenter_->reloadAll();
       }
       reloadRepoSelectorData();
+      scheduleGameDirectoryScan(true);
     }
 
     refreshBasicSettingsUi();

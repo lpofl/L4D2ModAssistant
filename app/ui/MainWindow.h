@@ -86,7 +86,7 @@ private slots:
   void onRenameTag();
   void onDeleteTag();
   void onTagSelectionChanged(int row);
-  void onGameModsUpdated();
+  void onGameModsUpdated(const QStringList& updatedMods, bool initialScan);
 
 private:
   void setupUi();
@@ -105,6 +105,7 @@ private:
   void ensureSettingsNavSelection();
   void setSettingsStatus(const QString& text, bool isError = false);
   void reinitializeRepository(const Settings& settings);
+  void scheduleGameDirectoryScan(bool showOverlay);
   int selectedCategoryId() const;
   void adjustCategoryOrder(int direction);
   int selectedTagGroupId() const;
@@ -190,6 +191,7 @@ private:
 
   Settings settings_{};
   bool suppressCategoryItemSignals_ = false;
+  bool isGameModsLoading_ = false;
 };
 
 

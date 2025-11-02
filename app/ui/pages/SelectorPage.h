@@ -4,6 +4,7 @@
 
 class QLabel;
 class QPushButton;
+class QProgressBar;
 
 class ModFilterPanel;
 class ModTableWidget;
@@ -25,6 +26,9 @@ public:
   QPushButton* applyButton() const { return applyToGameBtn_; }
   QLabel* strategyInfoLabel() const { return strategyInfoLabel_; }
 
+  void showLoadingOverlay(const QString& message);
+  void hideLoadingOverlay();
+
 signals:
   void filterAttributeChanged(const QString& text);
   void filterValueChanged(const QString& text);
@@ -37,6 +41,7 @@ signals:
 private:
   void buildUi();
   void wireSignals();
+  void resizeEvent(QResizeEvent* event) override;
 
   ModFilterPanel* filterPanel_{};
   ModTableWidget* gameDirTable_{};
@@ -46,5 +51,7 @@ private:
   QPushButton* saveCombinationBtn_{};
   QPushButton* applyToGameBtn_{};
   QLabel* strategyInfoLabel_{};
+  QWidget* loadingOverlay_{};
+  QLabel* loadingLabel_{};
+  QProgressBar* loadingProgress_{};
 };
-

@@ -4,6 +4,8 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QVBoxLayout>
+#include <QProgressBar>
+#include <QResizeEvent>
 
 #include "app/ui/components/ModFilterPanel.h"
 #include "app/ui/components/ModTableWidget.h"
@@ -36,7 +38,7 @@ void SelectorPage::buildUi() {
 
   auto* gameDirLabel = new QLabel(tr("游戏目录"), leftPanel);
   gameDirTable_ = new ModTableWidget(leftPanel);
-  gameDirTable_->configureColumns({tr("名称"), tr("TAG"), tr("作者"), tr("评分"), tr("备注")});
+  gameDirTable_->configureColumns({tr("名称"), tr("TAG"), tr("作者"), tr("评分"), tr("备注"), tr("入库状态")});
 
   leftLayout->addWidget(gameDirLabel);
   leftLayout->addWidget(gameDirTable_);
@@ -77,6 +79,25 @@ void SelectorPage::buildUi() {
   buttonsLayout->addWidget(applyToGameBtn_);
 
   layout->addLayout(buttonsLayout);
+
+  loadingOverlay_ = new QWidget(this);
+  loadingOverlay_->setAttribute(Qt::WA_NoMousePropagation, false);
+  loadingOverlay_->setStyleSheet(QStringLiteral("background-color: rgba(0, 0, 0, 120);"));
+  auto* overlayLayout = new QVBoxLayout(loadingOverlay_);
+  overlayLayout->setAlignment(Qt::AlignCenter);
+
+  loadingProgress_ = new QProgressBar(loadingOverlay_);
+  loadingProgress_->setRange(0, 0);
+  loadingProgress_->setFixedWidth(220);
+
+  loadingLabel_ = new QLabel(tr("正在扫描游戏目录..."), loadingOverlay_);
+  loadingLabel_->setStyleSheet(QStringLiteral("color: white; font-size: 14px;"));
+  loadingLabel_->setAlignment(Qt::AlignCenter);
+
+  overlayLayout->addWidget(loadingProgress_);
+  overlayLayout->addSpacing(12);
+  overlayLayout->addWidget(loadingLabel_);
+  loadingOverlay_->hide();
 }
 
 void SelectorPage::wireSignals() {
@@ -91,3 +112,25 @@ void SelectorPage::wireSignals() {
   connect(applyToGameBtn_, &QPushButton::clicked, this, &SelectorPage::applyRequested);
 }
 
+void SelectorPage::showLoadingOverlay(const QString& message) {
+  if (!loadingOverlay_) {
+    return;
+  }
+  loadingLabel_->setText(message.isEmpty() ? tr("正在扫描游戏目录...") : message);
+  loadingOverlay_->setGeometry(rect());
+  loadingOverlay_->show();
+  loadingOverlay_->raise();
+}
+
+void SelectorPage::hideLoadingOverlay() {
+  if (loadingOverlay_) {
+    loadingOverlay_->hide();
+  }
+}
+
+void SelectorPage::resizeEvent(QResizeEvent* event) {
+  QWidget::resizeEvent(event);
+  if (loadingOverlay_) {
+    loadingOverlay_->setGeometry(rect());
+  }
+}

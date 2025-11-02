@@ -7,6 +7,7 @@
 #include <QStringList>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -39,7 +40,9 @@ public:
 
 signals:
   /// 缓存内容更新后发射，提示 UI 重新加载游戏目录列表。
-  void gameModsUpdated();
+  /// @param updatedMods 本次扫描期间同步到仓库的 MOD 名称列表。
+  /// @param initialScan true 表示这是应用启动后的首次全量扫描。
+  void gameModsUpdated(const QStringList& updatedMods, bool initialScan);
 
 private slots:
   void onDirectoryChanged(const QString& path);
@@ -53,7 +56,11 @@ private:
   };
 
   void rescanAll();
-  void rescanSource(const QString& sourceKey, const QString& directory, RepoInventory& inventory, QSet<QString>& watchedFiles);
+  void rescanSource(const QString& sourceKey,
+                    const QString& directory,
+                    RepoInventory& inventory,
+                    QSet<QString>& watchedFiles,
+                    QStringList& updatedMods);
   RepoInventory buildInventory() const;
   QString normalizeKey(const QString& text) const;
   QString extractWorkshopId(const std::string& url) const;
@@ -68,9 +75,9 @@ private:
   QString resolveStatus(const ModRow* mod,
                         std::uint64_t fileSizeBytes,
                         const QString& sourceKey) const;
-  void synchronizeWorkshopIfNeeded(const QFileInfo& fileInfo,
-                                   ModRow& modRecord,
-                                   const QString& numericId);
+  std::optional<QString> synchronizeWorkshopIfNeeded(const QFileInfo& fileInfo,
+                                                     ModRow& modRecord,
+                                                     const QString& numericId);
   QString locateWorkshopCover(const QFileInfo& fileInfo) const;
   bool copyReplacing(const QString& src, const QString& dst) const;
   std::vector<TagDescriptor> tagsForMod(int modId) const;
@@ -85,4 +92,5 @@ private:
   QFileSystemWatcher watcher_;
   QStringList watchedDirectories_;
   QSet<QString> watchedFiles_;
+  bool initialScanCompleted_{false};
 };

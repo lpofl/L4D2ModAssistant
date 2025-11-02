@@ -60,6 +60,7 @@ void GameDirectoryMonitor::configure(const Settings& settings,
     directories << workshopDir_;
   }
   updateDirectoryWatches(directories);
+  initialScanCompleted_ = false;
   rescanAll();
 }
 
@@ -77,29 +78,35 @@ void GameDirectoryMonitor::rescanAll() {
   if (!repoService_) {
     return;
   }
+  const bool isInitial = !initialScanCompleted_;
   RepoInventory inventory = buildInventory();
   QSet<QString> files;
+  QStringList updatedMods;
 
   if (!addonsDir_.isEmpty()) {
-    rescanSource(QStringLiteral("addons"), addonsDir_, inventory, files);
+    rescanSource(QStringLiteral("addons"), addonsDir_, inventory, files, updatedMods);
   } else {
     repoService_->replaceGameModsForSource("addons", {});
   }
 
   if (!workshopDir_.isEmpty()) {
-    rescanSource(QStringLiteral("workshop"), workshopDir_, inventory, files);
+    rescanSource(QStringLiteral("workshop"), workshopDir_, inventory, files, updatedMods);
   } else {
     repoService_->replaceGameModsForSource("workshop", {});
   }
 
   updateFileWatches(files);
-  emit gameModsUpdated();
+  emit gameModsUpdated(updatedMods, isInitial);
+  if (isInitial) {
+    initialScanCompleted_ = true;
+  }
 }
 
 void GameDirectoryMonitor::rescanSource(const QString& sourceKey,
                                         const QString& directory,
                                         RepoInventory& inventory,
-                                        QSet<QString>& watchedFiles) {
+                                        QSet<QString>& watchedFiles,
+                                        QStringList& updatedMods) {
   if (!repoService_) {
     return;
   }
@@ -146,7 +153,9 @@ void GameDirectoryMonitor::rescanSource(const QString& sourceKey,
       const ModRow* mod = findWorkshopMatch(normalizedName, numericId, inventory, matchedIndex);
       matchedMod = mod ? &inventory.mods[matchedIndex] : nullptr;
       if (matchedMod) {
-        synchronizeWorkshopIfNeeded(info, inventory.mods[matchedIndex], numericId);
+        if (auto updatedName = synchronizeWorkshopIfNeeded(info, inventory.mods[matchedIndex], numericId)) {
+          updatedMods.append(*updatedName);
+        }
       }
     }
 
@@ -275,34 +284,41 @@ QString GameDirectoryMonitor::resolveStatus(const ModRow* mod,
   return tr("已入库");
 }
 
-void GameDirectoryMonitor::synchronizeWorkshopIfNeeded(const QFileInfo& fileInfo,
-                                                       ModRow& modRecord,
-                                                       const QString& numericId) {
+std::optional<QString> GameDirectoryMonitor::synchronizeWorkshopIfNeeded(const QFileInfo& fileInfo,
+                                                                         ModRow& modRecord,
+                                                                         const QString& numericId) {
   Q_UNUSED(numericId);
   if (!repoService_) {
-    return;
+    return std::nullopt;
   }
 
   const QDateTime workshopMtime = fileInfo.lastModified();
   QDateTime repoMtime;
-  if (!modRecord.last_saved_at.empty()) {
+  const QString recordedRepoPath = cleanPath(modRecord.file_path);
+  if (!recordedRepoPath.isEmpty()) {
+    const QFileInfo repoInfo(recordedRepoPath);
+    if (repoInfo.exists()) {
+      repoMtime = repoInfo.lastModified();
+    }
+  }
+  if (!repoMtime.isValid() && !modRecord.last_saved_at.empty()) {
     const QDate date = QDate::fromString(QString::fromStdString(modRecord.last_saved_at), QStringLiteral("yyyy-MM-dd"));
     if (date.isValid()) {
       repoMtime = QDateTime(date, QTime(0, 0));
     }
   }
   if (repoMtime.isValid() && repoMtime >= workshopMtime) {
-    return; // 仓库记录不旧于 workshop，无需同步
+    return std::nullopt; // 仓库记录不旧于 workshop，无需同步
   }
 
   const QString repoRoot = cleanPath(settings_.repoDir);
   if (repoRoot.isEmpty()) {
     spdlog::warn("Repository directory not configured, skip workshop sync for {}", modRecord.name);
-    return;
+    return std::nullopt;
   }
 
   const QString sourcePath = fileInfo.absoluteFilePath();
-  QString targetPath = cleanPath(modRecord.file_path);
+  QString targetPath = recordedRepoPath;
   auto ensureDirectory = [](const QString& path) {
     const QFileInfo info(path);
     QDir dir = info.dir();
@@ -312,24 +328,9 @@ void GameDirectoryMonitor::synchronizeWorkshopIfNeeded(const QFileInfo& fileInfo
   };
 
   const auto allocateTarget = [&](const QString& baseDir, const QString& fileName) {
+    // 始终覆盖同名文件，避免重复生成带后缀的副本
     QDir base(baseDir);
-    QString candidate = base.filePath(fileName);
-    int counter = 1;
-    QFileInfo info(candidate);
-    while (info.exists()) {
-      const QString baseName = info.completeBaseName();
-      const QString suffix = info.completeSuffix();
-      QString newName;
-      if (suffix.isEmpty()) {
-        newName = QStringLiteral("%1_%2").arg(baseName).arg(counter);
-      } else {
-        newName = QStringLiteral("%1_%2.%3").arg(baseName).arg(counter).arg(suffix);
-      }
-      candidate = base.filePath(newName);
-      info.setFile(candidate);
-      ++counter;
-    }
-    return QDir::cleanPath(candidate);
+    return QDir::cleanPath(base.filePath(fileName));
   };
 
   if (targetPath.isEmpty()) {
@@ -338,7 +339,7 @@ void GameDirectoryMonitor::synchronizeWorkshopIfNeeded(const QFileInfo& fileInfo
   ensureDirectory(targetPath);
   if (!copyReplacing(sourcePath, targetPath)) {
     spdlog::warn("Failed to copy workshop file {} -> {}", sourcePath.toStdString(), targetPath.toStdString());
-    return;
+    return std::nullopt;
   }
 
   QString coverSource = locateWorkshopCover(fileInfo);
@@ -356,7 +357,7 @@ void GameDirectoryMonitor::synchronizeWorkshopIfNeeded(const QFileInfo& fileInfo
   QFile repoFile(targetPath);
   if (!repoFile.open(QIODevice::ReadOnly)) {
     spdlog::warn("Failed to open copied workshop file for hashing: {}", targetPath.toStdString());
-    return;
+    return std::nullopt;
   }
   QCryptographicHash hash(QCryptographicHash::Sha256);
   while (!repoFile.atEnd()) {
@@ -374,8 +375,10 @@ void GameDirectoryMonitor::synchronizeWorkshopIfNeeded(const QFileInfo& fileInfo
   try {
     repoService_->updateModWithTags(modRecord, tagDescriptors);
     spdlog::info("Workshop mod {} synchronized to repository.", modRecord.name);
+    return QString::fromStdString(modRecord.name);
   } catch (const std::exception& ex) {
     spdlog::error("Failed to update repository record for {}: {}", modRecord.name, ex.what());
+    return std::nullopt;
   }
 }
 

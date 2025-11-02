@@ -3,16 +3,19 @@
 #include <algorithm>
 
 #include <QComboBox>
+#include <QFont>
 #include <QLineEdit>
 #include <QSortFilterProxyModel>
 #include <QStandardItem>
 #include <QStandardItemModel>
 #include <QTableWidgetItem>
+#include <unordered_map>
 
 #include "app/ui/components/ModFilterPanel.h"
 #include "app/ui/components/ModTableWidget.h"
 #include "app/ui/pages/SelectorPage.h"
 #include "app/ui/presenters/RepositoryPresenter.h"
+#include "core/repo/GameModDao.h"
 #include "core/repo/RepositoryService.h"
 
 namespace {
@@ -69,12 +72,107 @@ void SelectorPresenter::setRepositoryPresenter(RepositoryPresenter* presenter) {
   repositoryPresenter_ = presenter;
 }
 
+void SelectorPresenter::setRepositoryService(RepositoryService* service) {
+  // 保留仓库服务指针，后续刷新游戏目录列表时需要访问数据库缓存
+  repoService_ = service;
+  refreshGameDirectory();
+}
+
 void SelectorPresenter::refreshRepositoryData() {
+  if (repoService_) {
+    // ��ˢ����ϷĿ¼�����Ա�֤ UI ��ʾΪ����ɨ���
+    refreshGameDirectory();
+  }
   // 仓库数据刷新后联动更新筛选视图
   if (!filterAttribute_) {
     return;
   }
   handleFilterAttributeChanged(filterAttribute_->currentText());
+}
+
+
+void SelectorPresenter::refreshGameDirectory() {
+  if (!gameDirTable_) {
+    return;
+  }
+  gameDirTable_->setRowCount(0);
+  if (!repoService_) {
+    return;
+  }
+
+  const QString currentAttribute = filterAttribute_ ? filterAttribute_->currentText() : QString();
+  const QString currentFilterValue = filterValue_ ? filterValue_->currentText() : QString();
+  const int currentFilterId = filterIdForCombo(filterValue_, filterProxy_, filterModel_);
+
+  // 通过仓库缓存表读取游戏目录扫描结果，并匹配仓库 MOD 补全展示信息
+  const std::vector<GameModRow> gameMods = repoService_->listGameMods();
+  std::unordered_map<int, const ModRow*> repoIndex;
+  if (repositoryPresenter_) {
+    const auto& mods = repositoryPresenter_->mods();
+    repoIndex.reserve(mods.size());
+    for (const auto& mod : mods) {
+      repoIndex.emplace(mod.id, &mod);
+    }
+  }
+
+  gameDirTable_->setRowCount(static_cast<int>(gameMods.size()));
+  int rowIndex = 0;
+  for (const auto& cacheRow : gameMods) {
+    const int repoId = cacheRow.repo_mod_id.value_or(0);
+    const ModRow* repoMod = nullptr;
+    if (repoId > 0) {
+      const auto it = repoIndex.find(repoId);
+      if (it != repoIndex.end()) {
+        repoMod = it->second;
+      }
+    }
+
+    QString displayName = repoMod ? QString::fromStdString(repoMod->name)
+                                  : QString::fromStdString(cacheRow.name);
+    auto* nameItem = new QTableWidgetItem(displayName);
+    nameItem->setData(Qt::UserRole, repoMod ? repoMod->id : 0);
+    const bool isWorkshop = QString::fromStdString(cacheRow.source) == QStringLiteral("workshop");
+    if (isWorkshop) {
+      QFont font = nameItem->font();
+      font.setItalic(true);
+      nameItem->setFont(font);
+    }
+
+    const double sizeMb = cacheRow.file_size > 0
+                              ? static_cast<double>(cacheRow.file_size) / (1024.0 * 1024.0)
+                              : 0.0;
+    const QString tooltip = tr("文件路径: %1\n文件大小: %2 MB\n修改时间: %3")
+                                .arg(QString::fromStdString(cacheRow.file_path))
+                                .arg(QString::number(sizeMb, 'f', 2))
+                                .arg(QString::fromStdString(cacheRow.modified_at));
+    nameItem->setToolTip(tooltip);
+    gameDirTable_->setItem(rowIndex, 0, nameItem);
+
+    const QString tagsText = (repoMod && repositoryPresenter_)
+                                 ? repositoryPresenter_->tagsTextForMod(repoMod->id)
+                                 : QString();
+    gameDirTable_->setItem(rowIndex, 1, new QTableWidgetItem(tagsText));
+
+    const QString authorText = repoMod ? QString::fromStdString(repoMod->author) : QString();
+    gameDirTable_->setItem(rowIndex, 2, new QTableWidgetItem(authorText.isEmpty() ? QStringLiteral("-") : authorText));
+
+    QString ratingText = QStringLiteral("-");
+    if (repoMod && repoMod->rating > 0) {
+      ratingText = QString::number(repoMod->rating);
+    }
+    gameDirTable_->setItem(rowIndex, 3, new QTableWidgetItem(ratingText));
+
+    const QString noteText = repoMod ? QString::fromStdString(repoMod->note) : QString();
+    gameDirTable_->setItem(rowIndex, 4, new QTableWidgetItem(noteText));
+
+    auto* statusItem = new QTableWidgetItem(QString::fromStdString(cacheRow.status));
+    statusItem->setData(Qt::UserRole, QString::fromStdString(cacheRow.source));
+    gameDirTable_->setItem(rowIndex, 5, statusItem);
+
+    ++rowIndex;
+  }
+
+  updateGameDirVisibility(currentAttribute, currentFilterId, currentFilterValue);
 }
 
 void SelectorPresenter::applyFilter() {
